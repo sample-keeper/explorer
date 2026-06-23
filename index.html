@@ -1,54 +1,239 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>My Project</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: sans-serif; background: #0f172a; color: #f1f5f9; }
-    header { text-align: center; padding: 80px 20px 40px; }
-    header h1 { font-size: 3rem; margin-bottom: 16px; }
-    header p { font-size: 1.2rem; color: #94a3b8; max-width: 500px; margin: 0 auto 32px; }
-    .btn { background: #6366f1; color: white; padding: 14px 28px;
-           border-radius: 8px; text-decoration: none; font-size: 1rem; }
-    .btn:hover { background: #4f46e5; }
-    section { max-width: 800px; margin: 60px auto; padding: 0 20px; }
-    section h2 { font-size: 1.8rem; margin-bottom: 20px; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
-    .card { background: #1e293b; padding: 24px; border-radius: 12px; }
-    .card h3 { margin-bottom: 8px; }
-    .card p { color: #94a3b8; font-size: 0.95rem; }
-    footer { text-align: center; padding: 40px; color: #475569; font-size: 0.9rem; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>My Project</h1>
-    <p>A short description of what your project does and why it matters.</p>
-    <a href="#features" class="btn">Learn More</a>
-  </header>
 
-  <section id="features">
-    <h2>Features</h2>
-    <div class="cards">
-      <div class="card">
-        <h3>⚡ Fast</h3>
-        <p>Describe your first feature here.</p>
-      </div>
-      <div class="card">
-        <h3>🔒 Secure</h3>
-        <p>Describe your second feature here.</p>
-      </div>
-      <div class="card">
-        <h3>🎯 Simple</h3>
-        <p>Describe your third feature here.</p>
-      </div>
+<style>
+  #app { padding: 1.5rem 0; font-family: var(--font-sans); }
+  .row { display: flex; gap: 12px; margin-bottom: 1rem; }
+  #stake-input { flex: 1; font-size: 14px; }
+  #api-input { flex: 1; font-size: 14px; }
+  button { font-size: 14px; white-space: nowrap; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 0.75rem 1rem; }
+  .metric-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
+  .metric-value { font-size: 18px; font-weight: 500; }
+  #tx-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+  #tx-table th { text-align: left; padding: 8px 10px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-weight: 500; font-size: 12px; }
+  #tx-table td { padding: 8px 10px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; word-break: break-all; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 500; }
+  .badge-in { background: var(--color-background-success); color: var(--color-text-success); }
+  .badge-out { background: var(--color-background-danger); color: var(--color-text-danger); }
+  .badge-mixed { background: var(--color-background-warning); color: var(--color-text-warning); }
+  #status { font-size: 13px; color: var(--color-text-secondary); margin: 1rem 0; }
+  #pagination { display: flex; gap: 8px; align-items: center; margin-top: 1rem; font-size: 13px; }
+  .tx-hash { font-family: var(--font-mono); font-size: 11px; }
+  .col-hash { width: 38%; }
+  .col-time { width: 20%; }
+  .col-dir { width: 12%; }
+  .col-amount { width: 18%; }
+  .col-fee { width: 12%; }
+</style>
+
+<div id="app">
+  <h2 style="sr-only">Cardano transaction explorer</h2>
+  <div class="row">
+    <input id="api-input" type="password" placeholder="Blockfrost API key (mainnet)" />
+  </div>
+  <div class="row">
+    <input id="stake-input" type="text" placeholder="Stake address  e.g. stake1u..." />
+    <button id="fetch-btn" onclick="fetchAccount()"><i class="ti ti-search" aria-hidden="true"></i> Search</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="account-meta" style="display:none">
+    <div class="meta-grid" id="meta-cards"></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+      <span style="font-size:13px; font-weight:500;">Transaction history</span>
+      <button onclick="exportCSV()" style="font-size:12px; padding:4px 12px;"><i class="ti ti-download" aria-hidden="true"></i> Export CSV</button>
     </div>
-  </section>
+    <div style="overflow-x:auto;">
+      <table id="tx-table">
+        <thead>
+          <tr>
+            <th class="col-hash">TX hash</th>
+            <th class="col-time">Time</th>
+            <th class="col-dir">Direction</th>
+            <th class="col-amount">Amount (ADA)</th>
+            <th class="col-fee">Fee (ADA)</th>
+          </tr>
+        </thead>
+        <tbody id="tx-body"></tbody>
+      </table>
+    </div>
+    <div id="pagination"></div>
+  </div>
+</div>
 
-  <footer>
-    <p>© 2026 My Project. All rights reserved.</p>
-  </footer>
-</body>
-</html>
+<script>
+const BASE = 'https://cardano-mainnet.blockfrost.io/api/v0';
+let allTxs = [];
+let currentPage = 1;
+const PAGE_SIZE = 20;
+
+function lovelaceToAda(l) { return (parseInt(l) / 1_000_000).toFixed(2); }
+
+function setStatus(msg, isErr) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.style.color = isErr ? 'var(--color-text-danger)' : 'var(--color-text-secondary)';
+}
+
+function apiKey() { return document.getElementById('api-input').value.trim(); }
+
+async function bf(path) {
+  const r = await fetch(BASE + path, { headers: { project_id: apiKey() } });
+  if (!r.ok) throw new Error(`Blockfrost ${r.status}: ${(await r.json()).message || r.statusText}`);
+  return r.json();
+}
+
+async function fetchAllTxs(stake) {
+  let page = 1, results = [];
+  while (true) {
+    const batch = await bf(`/accounts/${stake}/transactions?count=100&page=${page}&order=desc`);
+    results = results.concat(batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return results;
+}
+
+async function fetchAccount() {
+  const stake = document.getElementById('stake-input').value.trim();
+  if (!stake) return setStatus('Please enter a stake address.', true);
+  if (!apiKey()) return setStatus('Please enter your Blockfrost API key.', true);
+
+  document.getElementById('account-meta').style.display = 'none';
+  setStatus('Fetching account info...');
+
+  try {
+    const [acct, txList] = await Promise.all([
+      bf(`/accounts/${stake}`),
+      fetchAllTxs(stake)
+    ]);
+
+    setStatus(`Fetching details for ${txList.length} transactions...`);
+
+    const hashes = txList.map(t => t.tx_hash);
+    const details = await Promise.all(
+      hashes.map(h => bf(`/txs/${h}`).catch(() => null))
+    );
+
+    const utxoData = await Promise.all(
+      hashes.map(h => bf(`/txs/${h}/utxos`).catch(() => null))
+    );
+
+    allTxs = txList.map((t, i) => {
+      const d = details[i];
+      const u = utxoData[i];
+      let direction = 'unknown', net = 0;
+      if (u) {
+        const inputAddrs = u.inputs.map(x => x.address);
+        const outputAddrs = u.outputs.map(x => x.address);
+        const allAddrs = await getStakeAddresses(stake);
+        const sent = inputAddrs.some(a => a === stake);
+        const recv = u.outputs.some(o => {
+          const amt = o.amount.find(a => a.unit === 'lovelace');
+          return o.address === stake && amt;
+        });
+        if (sent && recv) direction = 'mixed';
+        else if (sent) direction = 'out';
+        else direction = 'in';
+
+        const inSum = u.inputs.filter(x => x.address === stake).reduce((s, x) => s + parseInt(x.amount.find(a=>a.unit==='lovelace')?.quantity||0), 0);
+        const outSum = u.outputs.filter(x => x.address === stake).reduce((s, x) => s + parseInt(x.amount.find(a=>a.unit==='lovelace')?.quantity||0), 0);
+        net = outSum - inSum;
+      }
+      return {
+        hash: t.tx_hash,
+        time: t.block_time,
+        block: t.block_height,
+        fees: d?.fees || 0,
+        direction,
+        net
+      };
+    });
+
+    renderMeta(acct, txList.length);
+    currentPage = 1;
+    renderTable();
+    setStatus('');
+    document.getElementById('account-meta').style.display = 'block';
+
+  } catch(e) {
+    setStatus('Error: ' + e.message, true);
+  }
+}
+
+async function getStakeAddresses(stake) { return [stake]; }
+
+function renderMeta(acct, count) {
+  const cards = [
+    { label: 'Controlled ADA', value: lovelaceToAda(acct.controlled_amount) + ' ₳' },
+    { label: 'Rewards available', value: lovelaceToAda(acct.withdrawable_amount) + ' ₳' },
+    { label: 'Total rewards', value: lovelaceToAda(acct.rewards_sum) + ' ₳' },
+    { label: 'Total transactions', value: count.toLocaleString() },
+    { label: 'Active stake pool', value: acct.pool_id ? acct.pool_id.slice(0,12)+'…' : 'Not delegating' },
+    { label: 'Status', value: acct.active ? 'Active' : 'Inactive' },
+  ];
+  document.getElementById('meta-cards').innerHTML = cards.map(c =>
+    `<div class="metric"><div class="metric-label">${c.label}</div><div class="metric-value">${c.value}</div></div>`
+  ).join('');
+}
+
+function renderTable() {
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page = allTxs.slice(start, start + PAGE_SIZE);
+  const body = document.getElementById('tx-body');
+  body.innerHTML = page.map(tx => {
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const time = new Date(tx.time * 1000).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+    const dir = tx.direction;
+    const badge = dir === 'in' ? 'badge-in' : dir === 'out' ? 'badge-out' : 'badge-mixed';
+    const label = dir === 'in' ? 'Received' : dir === 'out' ? 'Sent' : 'Mixed';
+    const netAda = tx.net !== 0 ? (tx.net / 1_000_000).toFixed(2) : '—';
+    const sign = tx.net > 0 ? '+' : '';
+    return `<tr>
+      <td class="tx-hash"><a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" style="color:var(--color-text-info)">${tx.hash.slice(0,16)}…${tx.hash.slice(-8)}</a></td>
+      <td style="color:var(--color-text-secondary)">${date}<br><span style="font-size:11px">${time}</span></td>
+      <td><span class="badge ${badge}">${label}</span></td>
+      <td style="font-family:var(--font-mono)">${sign}${netAda}</td>
+      <td style="font-family:var(--font-mono); color:var(--color-text-secondary)">${lovelaceToAda(tx.fees)}</td>
+    </tr>`;
+  }).join('');
+  renderPagination();
+}
+
+function renderPagination() {
+  const total = Math.ceil(allTxs.length / PAGE_SIZE);
+  const pg = document.getElementById('pagination');
+  if (total <= 1) { pg.innerHTML = ''; return; }
+  pg.innerHTML = `
+    <button onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>← Prev</button>
+    <span style="color:var(--color-text-secondary)">Page ${currentPage} of ${total}</span>
+    <button onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>
+  `;
+}
+
+function goPage(p) { currentPage = p; renderTable(); }
+
+function exportCSV() {
+  const rows = [['TX Hash','Time','Direction','Net ADA','Fee ADA','Block']];
+  allTxs.forEach(tx => {
+    rows.push([
+      tx.hash,
+      new Date(tx.time * 1000).toISOString(),
+      tx.direction,
+      (tx.net / 1_000_000).toFixed(6),
+      (parseInt(tx.fees) / 1_000_000).toFixed(6),
+      tx.block
+    ]);
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'URL.createObjectURL(new Blob([csv], {type:"text/csv"}))';
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'cardano-transactions.csv';
+  a.click();
+}
+
+document.getElementById('stake-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchAccount();
+});
+</script>
