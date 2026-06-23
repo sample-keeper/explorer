@@ -239,12 +239,15 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(255,255,255,0.02); }
 
-    .col-hash { width: 32%; }
-    .col-date { width: 18%; }
-    .col-dir  { width: 14%; }
-    .col-net  { width: 18%; }
-    .col-fee  { width: 12%; }
-    .col-blk  { width: 12%; }
+    .col-hash   { width: 20%; vertical-align: top; }
+    .col-inputs { width: 40%; }
+    .col-outputs{ width: 40%; }
+
+    .utxo-list { display: flex; flex-direction: column; gap: 4px; }
+    .utxo-entry { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; }
+    .utxo-addr  { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+    .utxo-ada   { font-family: var(--mono); color: var(--text); white-space: nowrap; flex-shrink: 0; }
+    .utxo-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
 
     .hash-cell {
       font-family: var(--mono);
@@ -304,12 +307,6 @@
 
     #results { display: none; }
 
-    .pool-badge {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--muted);
-    }
-
     footer {
       text-align: center;
       padding: 2rem;
@@ -320,8 +317,9 @@
     }
 
     @media (max-width: 600px) {
-      .col-blk, .col-fee { display: none; }
-      .col-hash { width: 40%; }
+      .col-outputs { display: none; }
+      .col-hash { width: 30%; }
+      .col-inputs { width: 70%; }
       main { padding: 1rem 1rem 3rem; }
     }
   </style>
@@ -377,11 +375,8 @@
         <thead>
           <tr>
             <th class="col-hash">TX hash</th>
-            <th class="col-date">Date</th>
-            <th class="col-dir">Direction</th>
-            <th class="col-net">Net (ADA)</th>
-            <th class="col-fee">Fee</th>
-            <th class="col-blk">Block</th>
+            <th class="col-inputs">Inputs</th>
+            <th class="col-outputs">Outputs</th>
           </tr>
         </thead>
         <tbody id="tx-body"></tbody>
@@ -492,7 +487,9 @@ async function fetchAccount() {
         block: t.block_height,
         fees: d?.fees || 0,
         direction,
-        net
+        net,
+        inputs:  u ? u.inputs  : [],
+        outputs: u ? u.outputs : []
       };
     });
 
@@ -528,34 +525,38 @@ function renderMeta(acct, count) {
   document.getElementById('tx-count-label').textContent = `${count.toLocaleString()} transactions`;
 }
 
+function utxoRows(list) {
+  if (!list || list.length === 0) return '<span style="color:var(--muted);font-size:12px">—</span>';
+  return `<div class="utxo-list">${list.map(u => {
+    const ada = u.amount?.find(a => a.unit === 'lovelace');
+    const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000) + ' ₳' : '—';
+    const addr = u.address || '';
+    const short = addr.slice(0, 10) + '…' + addr.slice(-6);
+    return `<div class="utxo-entry">
+      <span class="utxo-addr" title="${addr}">${short}</span>
+      <span class="utxo-ada">${adaVal}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
 function renderTable() {
   const start = (currentPage - 1) * PAGE_SIZE;
   const page = allTxs.slice(start, start + PAGE_SIZE);
   document.getElementById('tx-body').innerHTML = page.map(tx => {
-    const d = new Date(tx.time * 1000);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const dir = tx.direction;
-    const badge = dir === 'in' ? 'badge-in' : dir === 'out' ? 'badge-out' : 'badge-mixed';
-    const label = dir === 'in' ? 'Received' : dir === 'out' ? 'Sent' : 'Mixed';
-    const netAda = tx.net / 1_000_000;
-    const netStr = netAda !== 0 ? (netAda > 0 ? '+' : '') + fmt(netAda) : '—';
-    const netClass = netAda > 0 ? 'pos' : netAda < 0 ? 'neg' : '';
-    const feeStr = fmt(lovelace(tx.fees));
     return `<tr>
-      <td class="hash-cell col-hash">
+      <td class="hash-cell col-hash" style="vertical-align:top;padding-top:13px">
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
-          ${tx.hash.slice(0, 12)}…${tx.hash.slice(-8)}
+          ${tx.hash.slice(0, 10)}…${tx.hash.slice(-6)}
         </a>
       </td>
-      <td class="col-date">
-        <div class="date-line">${dateStr}</div>
-        <div class="time-line">${timeStr}</div>
+      <td class="col-inputs" style="vertical-align:top">
+        <div class="utxo-label">Inputs</div>
+        ${utxoRows(tx.inputs)}
       </td>
-      <td class="col-dir"><span class="badge ${badge}">${label}</span></td>
-      <td class="col-net mono ${netClass}">${netStr}</td>
-      <td class="col-fee mono" style="color:var(--muted)">${feeStr}</td>
-      <td class="col-blk" style="color:var(--muted);font-size:12px">${tx.block?.toLocaleString() || '—'}</td>
+      <td class="col-outputs" style="vertical-align:top">
+        <div class="utxo-label">Outputs</div>
+        ${utxoRows(tx.outputs)}
+      </td>
     </tr>`;
   }).join('');
   renderPagination();
