@@ -1,85 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cardano TX Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-<style>
-  #app { padding: 1.5rem 0; font-family: var(--font-sans); }
-  .row { display: flex; gap: 12px; margin-bottom: 1rem; }
-  #stake-input { flex: 1; font-size: 14px; }
-  #api-input { flex: 1; font-size: 14px; }
-  button { font-size: 14px; white-space: nowrap; }
-  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
-  .metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 0.75rem 1rem; }
-  .metric-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
-  .metric-value { font-size: 18px; font-weight: 500; }
-  #tx-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-  #tx-table th { text-align: left; padding: 8px 10px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-weight: 500; font-size: 12px; }
-  #tx-table td { padding: 8px 10px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; word-break: break-all; }
-  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 500; }
-  .badge-in { background: var(--color-background-success); color: var(--color-text-success); }
-  .badge-out { background: var(--color-background-danger); color: var(--color-text-danger); }
-  .badge-mixed { background: var(--color-background-warning); color: var(--color-text-warning); }
-  #status { font-size: 13px; color: var(--color-text-secondary); margin: 1rem 0; }
-  #pagination { display: flex; gap: 8px; align-items: center; margin-top: 1rem; font-size: 13px; }
-  .tx-hash { font-family: var(--font-mono); font-size: 11px; }
-  .col-hash { width: 38%; }
-  .col-time { width: 20%; }
-  .col-dir { width: 12%; }
-  .col-amount { width: 18%; }
-  .col-fee { width: 12%; }
-</style>
+    :root {
+      --bg: #0b0f1a;
+      --surface: #131929;
+      --surface2: #1a2236;
+      --border: rgba(255,255,255,0.07);
+      --border2: rgba(255,255,255,0.13);
+      --text: #e8eaf0;
+      --muted: #7b859e;
+      --accent: #0cd9a0;
+      --accent-dim: rgba(12,217,160,0.12);
+      --red: #f87171;
+      --red-dim: rgba(248,113,113,0.12);
+      --amber: #fbbf24;
+      --amber-dim: rgba(251,191,36,0.12);
+      --blue: #60a5fa;
+      --mono: 'JetBrains Mono', 'Fira Mono', monospace;
+    }
 
-<div id="app">
-  <h2 style="sr-only">Cardano transaction explorer</h2>
-  <div class="row">
-    <input id="api-input" type="password" placeholder="Blockfrost API key (mainnet)" />
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header .logo {
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    header .logo svg { width: 16px; height: 16px; }
+
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    header span {
+      font-size: 13px;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    .search-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .search-card h2 {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 1rem;
+    }
+
+    .field { margin-bottom: 0.75rem; }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .field input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .field input:focus { border-color: var(--accent); }
+    .field input::placeholder { color: var(--muted); }
+
+    .search-row { display: flex; gap: 10px; margin-top: 1rem; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent);
+      color: #051510;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      flex-shrink: 0;
+    }
+
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border2);
+      font-weight: 500;
+    }
+
+    .btn-ghost:hover { color: var(--text); border-color: var(--border2); opacity: 1; background: var(--surface2); }
+
+    #status {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 0.75rem;
+      min-height: 20px;
+    }
+
+    #status.error { color: var(--red); }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 1.5rem;
+    }
+
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .metric-value.ada::after {
+      content: ' ₳';
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-header h3 {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      table-layout: fixed;
+    }
+
+    thead { background: var(--surface2); }
+
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .col-hash { width: 32%; }
+    .col-date { width: 18%; }
+    .col-dir  { width: 14%; }
+    .col-net  { width: 18%; }
+    .col-fee  { width: 12%; }
+    .col-blk  { width: 12%; }
+
+    .hash-cell {
+      font-family: var(--mono);
+      font-size: 11.5px;
+    }
+
+    .hash-cell a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    .hash-cell a:hover { text-decoration: underline; }
+
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 99px;
+      letter-spacing: 0.02em;
+    }
+
+    .badge-in  { background: var(--accent-dim);  color: var(--accent); }
+    .badge-out { background: var(--red-dim);      color: var(--red);    }
+    .badge-mixed { background: var(--amber-dim);  color: var(--amber);  }
+
+    .mono { font-family: var(--mono); font-size: 12px; }
+
+    .pos { color: var(--accent); }
+    .neg { color: var(--red); }
+
+    .date-line { font-size: 12px; color: var(--text); }
+    .time-line { font-size: 11px; color: var(--muted); }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 1rem;
+      justify-content: center;
+    }
+
+    .pagination span { font-size: 13px; color: var(--muted); }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: -2px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #results { display: none; }
+
+    .pool-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      font-size: 12px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      margin-top: 3rem;
+    }
+
+    @media (max-width: 600px) {
+      .col-blk, .col-fee { display: none; }
+      .col-hash { width: 40%; }
+      main { padding: 1rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 16 16" fill="#051510" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="4" r="2.5"/>
+      <circle cx="3" cy="12" r="2.5"/>
+      <circle cx="13" cy="12" r="2.5"/>
+      <line x1="8" y1="6.5" x2="4.2" y2="10" stroke="#051510" stroke-width="1.5"/>
+      <line x1="8" y1="6.5" x2="11.8" y2="10" stroke="#051510" stroke-width="1.5"/>
+    </svg>
   </div>
-  <div class="row">
-    <input id="stake-input" type="text" placeholder="Stake address  e.g. stake1u..." />
-    <button id="fetch-btn" onclick="fetchAccount()"><i class="ti ti-search" aria-hidden="true"></i> Search</button>
-  </div>
+  <h1>Cardano TX Explorer <span>mainnet</span></h1>
+</header>
 
-  <div id="status"></div>
-  <div id="account-meta" style="display:none">
-    <div class="meta-grid" id="meta-cards"></div>
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
-      <span style="font-size:13px; font-weight:500;">Transaction history</span>
-      <button onclick="exportCSV()" style="font-size:12px; padding:4px 12px;"><i class="ti ti-download" aria-hidden="true"></i> Export CSV</button>
+<main>
+  <div class="search-card">
+    <h2>Lookup</h2>
+    <div class="field">
+      <label>Blockfrost API key</label>
+      <input id="api-key" type="password" placeholder="mainnetXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" autocomplete="off" />
     </div>
-    <div style="overflow-x:auto;">
-      <table id="tx-table">
+    <div class="field">
+      <label>Stake address</label>
+      <input id="stake" type="text" placeholder="stake1u..." />
+    </div>
+    <div class="search-row">
+      <button class="btn" id="search-btn" onclick="fetchAccount()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search
+      </button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div id="results">
+    <div class="meta-grid" id="meta-grid"></div>
+
+    <div class="section-header">
+      <h3 id="tx-count-label">Transactions</h3>
+      <button class="btn btn-ghost" onclick="exportCSV()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
         <thead>
           <tr>
             <th class="col-hash">TX hash</th>
-            <th class="col-time">Time</th>
+            <th class="col-date">Date</th>
             <th class="col-dir">Direction</th>
-            <th class="col-amount">Amount (ADA)</th>
-            <th class="col-fee">Fee (ADA)</th>
+            <th class="col-net">Net (ADA)</th>
+            <th class="col-fee">Fee</th>
+            <th class="col-blk">Block</th>
           </tr>
         </thead>
         <tbody id="tx-body"></tbody>
       </table>
     </div>
-    <div id="pagination"></div>
+
+    <div class="pagination" id="pagination"></div>
   </div>
-</div>
+</main>
+
+<footer>
+  Powered by <a href="https://blockfrost.io" style="color:var(--accent);text-decoration:none">Blockfrost</a> · Data is read-only · Your API key is never stored
+</footer>
 
 <script>
 const BASE = 'https://cardano-mainnet.blockfrost.io/api/v0';
 let allTxs = [];
 let currentPage = 1;
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 25;
 
-function lovelaceToAda(l) { return (parseInt(l) / 1_000_000).toFixed(2); }
+function lovelace(l) { return (parseInt(l || 0) / 1_000_000); }
+function fmt(n, dec = 2) { return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
 
 function setStatus(msg, isErr) {
   const el = document.getElementById('status');
-  el.textContent = msg;
-  el.style.color = isErr ? 'var(--color-text-danger)' : 'var(--color-text-secondary)';
+  el.innerHTML = msg;
+  el.className = isErr ? 'error' : '';
 }
 
-function apiKey() { return document.getElementById('api-input').value.trim(); }
+function apiKey() { return document.getElementById('api-key').value.trim(); }
 
 async function bf(path) {
   const r = await fetch(BASE + path, { headers: { project_id: apiKey() } });
-  if (!r.ok) throw new Error(`Blockfrost ${r.status}: ${(await r.json()).message || r.statusText}`);
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.message || `HTTP ${r.status}`);
+  }
   return r.json();
 }
 
@@ -90,17 +429,19 @@ async function fetchAllTxs(stake) {
     results = results.concat(batch);
     if (batch.length < 100) break;
     page++;
+    setStatus(`<span class="spinner"></span> Loading transactions… ${results.length} so far`);
   }
   return results;
 }
 
 async function fetchAccount() {
-  const stake = document.getElementById('stake-input').value.trim();
-  if (!stake) return setStatus('Please enter a stake address.', true);
-  if (!apiKey()) return setStatus('Please enter your Blockfrost API key.', true);
+  const stake = document.getElementById('stake').value.trim();
+  if (!stake) return setStatus('Enter a stake address.', true);
+  if (!apiKey()) return setStatus('Enter your Blockfrost API key.', true);
 
-  document.getElementById('account-meta').style.display = 'none';
-  setStatus('Fetching account info...');
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('search-btn').disabled = true;
+  setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
     const [acct, txList] = await Promise.all([
@@ -108,38 +449,43 @@ async function fetchAccount() {
       fetchAllTxs(stake)
     ]);
 
-    setStatus(`Fetching details for ${txList.length} transactions...`);
+    setStatus(`<span class="spinner"></span> Fetching details for ${txList.length} transactions…`);
 
-    const hashes = txList.map(t => t.tx_hash);
-    const details = await Promise.all(
-      hashes.map(h => bf(`/txs/${h}`).catch(() => null))
-    );
+    const chunks = [];
+    for (let i = 0; i < txList.length; i += 10) chunks.push(txList.slice(i, i + 10));
 
-    const utxoData = await Promise.all(
-      hashes.map(h => bf(`/txs/${h}/utxos`).catch(() => null))
-    );
+    const details = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null)));
+      details.push(...res);
+    }
+
+    const utxos = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
+      utxos.push(...res);
+    }
 
     allTxs = txList.map((t, i) => {
       const d = details[i];
-      const u = utxoData[i];
-      let direction = 'unknown', net = 0;
+      const u = utxos[i];
+      let direction = 'unknown';
+      let net = 0;
+
       if (u) {
-        const inputAddrs = u.inputs.map(x => x.address);
-        const outputAddrs = u.outputs.map(x => x.address);
-        const allAddrs = await getStakeAddresses(stake);
-        const sent = inputAddrs.some(a => a === stake);
-        const recv = u.outputs.some(o => {
-          const amt = o.amount.find(a => a.unit === 'lovelace');
-          return o.address === stake && amt;
-        });
+        const inputsFromStake = u.inputs.filter(x => x.address === stake);
+        const outputsToStake = u.outputs.filter(x => x.address === stake);
+        const sent = inputsFromStake.length > 0;
+        const recv = outputsToStake.length > 0;
         if (sent && recv) direction = 'mixed';
         else if (sent) direction = 'out';
-        else direction = 'in';
+        else if (recv) direction = 'in';
 
-        const inSum = u.inputs.filter(x => x.address === stake).reduce((s, x) => s + parseInt(x.amount.find(a=>a.unit==='lovelace')?.quantity||0), 0);
-        const outSum = u.outputs.filter(x => x.address === stake).reduce((s, x) => s + parseInt(x.amount.find(a=>a.unit==='lovelace')?.quantity||0), 0);
+        const inSum = inputsFromStake.reduce((s, x) => s + parseInt(x.amount?.find(a => a.unit === 'lovelace')?.quantity || 0), 0);
+        const outSum = outputsToStake.reduce((s, x) => s + parseInt(x.amount?.find(a => a.unit === 'lovelace')?.quantity || 0), 0);
         net = outSum - inSum;
       }
+
       return {
         hash: t.tx_hash,
         time: t.block_time,
@@ -154,47 +500,62 @@ async function fetchAccount() {
     currentPage = 1;
     renderTable();
     setStatus('');
-    document.getElementById('account-meta').style.display = 'block';
+    document.getElementById('results').style.display = 'block';
 
-  } catch(e) {
+  } catch (e) {
     setStatus('Error: ' + e.message, true);
+  } finally {
+    document.getElementById('search-btn').disabled = false;
   }
 }
 
-async function getStakeAddresses(stake) { return [stake]; }
-
 function renderMeta(acct, count) {
+  const pool = acct.pool_id ? acct.pool_id.slice(0, 10) + '…' : 'Not delegating';
   const cards = [
-    { label: 'Controlled ADA', value: lovelaceToAda(acct.controlled_amount) + ' ₳' },
-    { label: 'Rewards available', value: lovelaceToAda(acct.withdrawable_amount) + ' ₳' },
-    { label: 'Total rewards', value: lovelaceToAda(acct.rewards_sum) + ' ₳' },
-    { label: 'Total transactions', value: count.toLocaleString() },
-    { label: 'Active stake pool', value: acct.pool_id ? acct.pool_id.slice(0,12)+'…' : 'Not delegating' },
-    { label: 'Status', value: acct.active ? 'Active' : 'Inactive' },
+    { label: 'Controlled ADA', value: fmt(lovelace(acct.controlled_amount)), ada: true },
+    { label: 'Rewards available', value: fmt(lovelace(acct.withdrawable_amount)), ada: true },
+    { label: 'Total rewards earned', value: fmt(lovelace(acct.rewards_sum)), ada: true },
+    { label: 'Total deposits', value: fmt(lovelace(acct.deposits_sum)), ada: true },
+    { label: 'Transactions', value: count.toLocaleString(), ada: false },
+    { label: 'Stake pool', value: pool, ada: false },
   ];
-  document.getElementById('meta-cards').innerHTML = cards.map(c =>
-    `<div class="metric"><div class="metric-label">${c.label}</div><div class="metric-value">${c.value}</div></div>`
+  document.getElementById('meta-grid').innerHTML = cards.map(c =>
+    `<div class="metric">
+      <div class="metric-label">${c.label}</div>
+      <div class="metric-value${c.ada ? ' ada' : ''}">${c.value}</div>
+    </div>`
   ).join('');
+  document.getElementById('tx-count-label').textContent = `${count.toLocaleString()} transactions`;
 }
 
 function renderTable() {
   const start = (currentPage - 1) * PAGE_SIZE;
   const page = allTxs.slice(start, start + PAGE_SIZE);
-  const body = document.getElementById('tx-body');
-  body.innerHTML = page.map(tx => {
-    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    const time = new Date(tx.time * 1000).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+  document.getElementById('tx-body').innerHTML = page.map(tx => {
+    const d = new Date(tx.time * 1000);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const dir = tx.direction;
     const badge = dir === 'in' ? 'badge-in' : dir === 'out' ? 'badge-out' : 'badge-mixed';
     const label = dir === 'in' ? 'Received' : dir === 'out' ? 'Sent' : 'Mixed';
-    const netAda = tx.net !== 0 ? (tx.net / 1_000_000).toFixed(2) : '—';
-    const sign = tx.net > 0 ? '+' : '';
+    const netAda = tx.net / 1_000_000;
+    const netStr = netAda !== 0 ? (netAda > 0 ? '+' : '') + fmt(netAda) : '—';
+    const netClass = netAda > 0 ? 'pos' : netAda < 0 ? 'neg' : '';
+    const feeStr = fmt(lovelace(tx.fees));
     return `<tr>
-      <td class="tx-hash"><a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" style="color:var(--color-text-info)">${tx.hash.slice(0,16)}…${tx.hash.slice(-8)}</a></td>
-      <td style="color:var(--color-text-secondary)">${date}<br><span style="font-size:11px">${time}</span></td>
-      <td><span class="badge ${badge}">${label}</span></td>
-      <td style="font-family:var(--font-mono)">${sign}${netAda}</td>
-      <td style="font-family:var(--font-mono); color:var(--color-text-secondary)">${lovelaceToAda(tx.fees)}</td>
+      <td class="hash-cell col-hash">
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
+          ${tx.hash.slice(0, 12)}…${tx.hash.slice(-8)}
+        </a>
+      </td>
+      <td class="col-date">
+        <div class="date-line">${dateStr}</div>
+        <div class="time-line">${timeStr}</div>
+      </td>
+      <td class="col-dir"><span class="badge ${badge}">${label}</span></td>
+      <td class="col-net mono ${netClass}">${netStr}</td>
+      <td class="col-fee mono" style="color:var(--muted)">${feeStr}</td>
+      <td class="col-blk" style="color:var(--muted);font-size:12px">${tx.block?.toLocaleString() || '—'}</td>
     </tr>`;
   }).join('');
   renderPagination();
@@ -205,35 +566,38 @@ function renderPagination() {
   const pg = document.getElementById('pagination');
   if (total <= 1) { pg.innerHTML = ''; return; }
   pg.innerHTML = `
-    <button onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>← Prev</button>
-    <span style="color:var(--color-text-secondary)">Page ${currentPage} of ${total}</span>
-    <button onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>
+    <button class="btn btn-ghost" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
+    <span>Page ${currentPage} of ${total}</span>
+    <button class="btn btn-ghost" onclick="goPage(${currentPage + 1})" ${currentPage === total ? 'disabled' : ''}>Next →</button>
   `;
 }
 
-function goPage(p) { currentPage = p; renderTable(); }
+function goPage(p) { currentPage = p; renderTable(); window.scrollTo({ top: 0 }); }
 
 function exportCSV() {
-  const rows = [['TX Hash','Time','Direction','Net ADA','Fee ADA','Block']];
+  const rows = [['TX Hash', 'Date', 'Time', 'Direction', 'Net ADA', 'Fee ADA', 'Block']];
   allTxs.forEach(tx => {
+    const d = new Date(tx.time * 1000);
     rows.push([
       tx.hash,
-      new Date(tx.time * 1000).toISOString(),
+      d.toLocaleDateString('en-US'),
+      d.toLocaleTimeString('en-US'),
       tx.direction,
       (tx.net / 1_000_000).toFixed(6),
-      (parseInt(tx.fees) / 1_000_000).toFixed(6),
-      tx.block
+      lovelace(tx.fees).toFixed(6),
+      tx.block || ''
     ]);
   });
-  const csv = rows.map(r => r.join(',')).join('\n');
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const a = document.createElement('a');
-  a.href = 'URL.createObjectURL(new Blob([csv], {type:"text/csv"}))';
-  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'cardano-transactions.csv';
   a.click();
 }
 
-document.getElementById('stake-input').addEventListener('keydown', e => {
+document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
 });
 </script>
+</body>
+</html>
