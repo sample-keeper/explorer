@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cardano TX Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b0f1a;
+      --surface: #131929;
+      --surface2: #1a2236;
+      --border: rgba(255,255,255,0.07);
+      --border2: rgba(255,255,255,0.13);
+      --text: #e8eaf0;
+      --muted: #7b859e;
+      --accent: #0cd9a0;
+      --accent-dim: rgba(12,217,160,0.12);
+      --red: #f87171;
+      --red-dim: rgba(248,113,113,0.12);
+      --amber: #fbbf24;
+      --amber-dim: rgba(251,191,36,0.12);
+      --blue: #60a5fa;
+      --mono: 'JetBrains Mono', 'Fira Mono', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header .logo {
+      width: 28px; height: 28px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    header .logo svg { width: 16px; height: 16px; }
+    header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+    header span { font-size: 13px; color: var(--muted); margin-left: 4px; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .search-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .search-card h2 {
+      font-size: 14px; font-weight: 500; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1rem;
+    }
+    .field { margin-bottom: 0.75rem; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    .field input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border2);
+      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit;
+      padding: 10px 14px; outline: none; transition: border-color 0.15s;
+    }
+    .field input:focus { border-color: var(--accent); }
+    .field input::placeholder { color: var(--muted); }
+    .search-row { display: flex; gap: 10px; margin-top: 1rem; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent); color: #051510;
+      font-size: 14px; font-weight: 600; border: none;
+      border-radius: 8px; padding: 10px 20px;
+      cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border2); font-weight: 500;
+    }
+    .btn-ghost:hover { color: var(--text); opacity: 1; background: var(--surface2); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    #status { font-size: 13px; color: var(--muted); margin-top: 0.75rem; min-height: 20px; }
+    #status.error { color: var(--red); }
+
+    /* Labels panel */
+    .labels-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .labels-card h2 {
+      font-size: 14px; font-weight: 500; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1rem;
+    }
+    .label-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+    .label-row input.lbl-name {
+      width: 140px; flex-shrink: 0;
+      background: var(--bg); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 6px 10px; outline: none;
+    }
+    .label-row input.lbl-name:focus { border-color: var(--accent); }
+    .label-row input.lbl-addr {
+      flex: 1;
+      background: var(--bg); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      font-family: var(--mono); padding: 6px 10px; outline: none;
+    }
+    .label-row input.lbl-addr:focus { border-color: var(--accent); }
+    .label-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--accent-dim); color: var(--accent);
+      font-size: 11px; font-weight: 600; padding: 2px 8px;
+      border-radius: 99px; white-space: nowrap; cursor: default;
+    }
+    .label-chip.yellow { background: var(--amber-dim); color: var(--amber); }
+    .label-chip.blue   { background: rgba(96,165,250,0.12); color: var(--blue); }
+    .label-chip.red    { background: var(--red-dim); color: var(--red); }
+
+    /* Meta */
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px; margin-bottom: 1.5rem;
+    }
+    .metric {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .metric-value { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+    .metric-value.ada::after { content: ' ₳'; font-size: 14px; font-weight: 400; color: var(--muted); }
+
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+    .section-header h3 { font-size: 14px; font-weight: 500; color: var(--muted); }
+
+    .table-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+    thead { background: var(--surface2); }
+    th {
+      padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 500;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .col-hash    { width: 16%; }
+    .col-inputs  { width: 42%; }
+    .col-outputs { width: 42%; }
+
+    .utxo-col-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
+    .utxo-list { display: flex; flex-direction: column; gap: 6px; }
+    .utxo-entry { display: flex; flex-direction: column; gap: 2px; }
+    .utxo-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .utxo-addr {
+      font-family: var(--mono); font-size: 11px; color: var(--muted);
+      word-break: break-all;
+    }
+    .utxo-ada { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; flex-shrink: 0; }
+
+    .hash-cell { font-family: var(--mono); font-size: 11px; }
+    .hash-cell a { color: var(--blue); text-decoration: none; }
+    .hash-cell a:hover { text-decoration: underline; }
+
+    .pagination { display: flex; align-items: center; gap: 10px; margin-top: 1rem; justify-content: center; }
+    .pagination span { font-size: 13px; color: var(--muted); }
+
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid var(--border2); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #results { display: none; }
+
+    footer {
+      text-align: center; padding: 2rem; font-size: 12px;
+      color: var(--muted); border-top: 1px solid var(--border); margin-top: 3rem;
+    }
+
+    @media (max-width: 700px) {
+      .col-outputs { display: none; }
+      .col-hash { width: 28%; } .col-inputs { width: 72%; }
+      main { padding: 1rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 16 16" fill="#051510" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="4" r="2.5"/>
+      <circle cx="3" cy="12" r="2.5"/>
+      <circle cx="13" cy="12" r="2.5"/>
+      <line x1="8" y1="6.5" x2="4.2" y2="10" stroke="#051510" stroke-width="1.5"/>
+      <line x1="8" y1="6.5" x2="11.8" y2="10" stroke="#051510" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <h1>Cardano TX Explorer <span>mainnet</span></h1>
+</header>
+
+<main>
+  <!-- Search -->
+  <div class="search-card">
+    <h2>Lookup</h2>
+    <div class="field">
+      <label>Stake address</label>
+      <input id="stake" type="text" placeholder="stake1u..." />
+    </div>
+    <div class="search-row">
+      <button class="btn" id="search-btn" onclick="fetchAccount()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search
+      </button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <!-- Address Labels -->
+  <div class="labels-card">
+    <h2>Address Labels</h2>
+    <div id="label-rows"></div>
+    <button class="btn btn-ghost btn-sm" onclick="addLabelRow()" style="margin-top:8px">+ Add label</button>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <div class="meta-grid" id="meta-grid"></div>
+    <div class="section-header">
+      <h3 id="tx-count-label">Transactions</h3>
+      <button class="btn btn-ghost" onclick="exportCSV()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-hash">TX Hash</th>
+            <th class="col-inputs">Inputs</th>
+            <th class="col-outputs">Outputs</th>
+          </tr>
+        </thead>
+        <tbody id="tx-body"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</main>
+
+<footer>
+  Powered by <a href="https://blockfrost.io" style="color:var(--accent);text-decoration:none">Blockfrost</a> · Data is read-only
+</footer>
+
+<script>
+const BASE    = 'https://cardano-mainnet.blockfrost.io/api/v0';
+const API_KEY = 'mainnettuskMeFpliyx52DukVDywVSJ9e5kUCqb';
+
+let allTxs      = [];
+let currentPage = 1;
+const PAGE_SIZE = 25;
+
+// ── Label colours cycling ──────────────────────────────────────────
+const CHIP_CLASSES = ['', 'yellow', 'blue', 'red'];
+let labelColorIdx  = 0;
+
+// labels: [ { name, address, color } ]
+let labels = [];
+
+function addLabelRow(name = '', address = '', color = null) {
+  const c = color ?? CHIP_CLASSES[labelColorIdx % CHIP_CLASSES.length];
+  labelColorIdx++;
+  const idx = labels.length;
+  labels.push({ name, address, color: c });
+
+  const container = document.getElementById('label-rows');
+  const row = document.createElement('div');
+  row.className = 'label-row';
+  row.dataset.idx = idx;
+  row.innerHTML = `
+    <input class="lbl-name" placeholder="Label name" value="${escHtml(name)}"
+      oninput="updateLabel(${idx},'name',this.value)" />
+    <input class="lbl-addr" placeholder="addr1 or stake1 address" value="${escHtml(address)}"
+      oninput="updateLabel(${idx},'address',this.value)" />
+    <span class="label-chip ${c}" id="chip-${idx}">${escHtml(name) || 'label'}</span>
+    <button class="btn btn-ghost btn-sm" onclick="removeLabelRow(this,${idx})">✕</button>
+  `;
+  container.appendChild(row);
+  renderTable();
+}
+
+function updateLabel(idx, field, val) {
+  labels[idx][field] = val;
+  if (field === 'name') {
+    const chip = document.getElementById(`chip-${idx}`);
+    if (chip) chip.textContent = val || 'label';
+  }
+  renderTable();
+}
+
+function removeLabelRow(btn, idx) {
+  labels[idx] = null;
+  btn.closest('.label-row').remove();
+  renderTable();
+}
+
+function getLabel(addr) {
+  for (const l of labels) {
+    if (l && l.address && l.address.trim() === addr) return l;
+  }
+  return null;
+}
+
+// ── Utilities ──────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function lovelace(l) { return parseInt(l || 0) / 1_000_000; }
+function fmt(n, dec = 2) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function setStatus(msg, isErr) {
+  const el = document.getElementById('status');
+  el.innerHTML = msg;
+  el.className = isErr ? 'error' : '';
+}
+
+// ── Blockfrost ─────────────────────────────────────────────────────
+async function bf(path) {
+  const r = await fetch(BASE + path, { headers: { project_id: API_KEY } });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.message || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+async function fetchAllTxs(stake) {
+  let page = 1, results = [];
+  while (true) {
+    const batch = await bf(`/accounts/${stake}/transactions?count=100&page=${page}&order=desc`);
+    results = results.concat(batch);
+    if (batch.length < 100) break;
+    page++;
+    setStatus(`<span class="spinner"></span> Loading transactions… ${results.length} so far`);
+  }
+  return results;
+}
+
+async function fetchAccount() {
+  const stake = document.getElementById('stake').value.trim();
+  if (!stake) return setStatus('Enter a stake address.', true);
+
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('search-btn').disabled = true;
+  setStatus('<span class="spinner"></span> Fetching account…');
+
+  try {
+    const [acct, txList] = await Promise.all([
+      bf(`/accounts/${stake}`),
+      fetchAllTxs(stake)
+    ]);
+
+    setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
+
+    const chunks = [];
+    for (let i = 0; i < txList.length; i += 10) chunks.push(txList.slice(i, i + 10));
+
+    const details = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null)));
+      details.push(...res);
+    }
+
+    const utxos = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
+      utxos.push(...res);
+    }
+
+    allTxs = txList.map((t, i) => {
+      const d = details[i];
+      const u = utxos[i];
+      return {
+        hash:    t.tx_hash,
+        time:    t.block_time,
+        block:   t.block_height,
+        fees:    d?.fees || 0,
+        inputs:  u ? u.inputs  : [],
+        outputs: u ? u.outputs : []
+      };
+    });
+
+    renderMeta(acct, txList.length);
+    currentPage = 1;
+    renderTable();
+    setStatus('');
+    document.getElementById('results').style.display = 'block';
+
+  } catch (e) {
+    setStatus('Error: ' + e.message, true);
+  } finally {
+    document.getElementById('search-btn').disabled = false;
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────
+function renderMeta(acct, count) {
+  const pool = acct.pool_id ? acct.pool_id.slice(0, 12) + '…' : 'Not delegating';
+  const cards = [
+    { label: 'Controlled ADA',      value: fmt(lovelace(acct.controlled_amount)),   ada: true  },
+    { label: 'Rewards available',   value: fmt(lovelace(acct.withdrawable_amount)), ada: true  },
+    { label: 'Total rewards earned',value: fmt(lovelace(acct.rewards_sum)),         ada: true  },
+    { label: 'Total deposits',      value: fmt(lovelace(acct.deposits_sum)),        ada: true  },
+    { label: 'Transactions',        value: count.toLocaleString(),                  ada: false },
+    { label: 'Stake pool',          value: pool,                                    ada: false },
+  ];
+  document.getElementById('meta-grid').innerHTML = cards.map(c =>
+    `<div class="metric">
+      <div class="metric-label">${c.label}</div>
+      <div class="metric-value${c.ada ? ' ada' : ''}">${c.value}</div>
+    </div>`
+  ).join('');
+  document.getElementById('tx-count-label').textContent = `${count.toLocaleString()} transactions`;
+}
+
+function utxoRows(list) {
+  if (!list || list.length === 0) return '<span style="color:var(--muted);font-size:12px">—</span>';
+  return `<div class="utxo-list">${list.map(u => {
+    const addr   = u.address || '';
+    const ada    = u.amount?.find(a => a.unit === 'lovelace');
+    const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000) + ' ₳' : '—';
+    const lbl    = getLabel(addr);
+    const chipHtml = lbl
+      ? `<span class="label-chip ${lbl.color}">${escHtml(lbl.name || 'label')}</span>`
+      : '';
+    return `<div class="utxo-entry">
+      <div class="utxo-top">
+        ${chipHtml}
+        <span class="utxo-ada">${adaVal}</span>
+      </div>
+      <div class="utxo-addr">${escHtml(addr)}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderTable() {
+  if (!allTxs.length) return;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page  = allTxs.slice(start, start + PAGE_SIZE);
+  document.getElementById('tx-body').innerHTML = page.map(tx => `
+    <tr>
+      <td class="hash-cell col-hash">
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
+          ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
+        </a>
+      </td>
+      <td class="col-inputs">
+        <div class="utxo-col-label">Inputs</div>
+        ${utxoRows(tx.inputs)}
+      </td>
+      <td class="col-outputs">
+        <div class="utxo-col-label">Outputs</div>
+        ${utxoRows(tx.outputs)}
+      </td>
+    </tr>`).join('');
+  renderPagination();
+}
+
+function renderPagination() {
+  const total = Math.ceil(allTxs.length / PAGE_SIZE);
+  const pg = document.getElementById('pagination');
+  if (total <= 1) { pg.innerHTML = ''; return; }
+  pg.innerHTML = `
+    <button class="btn btn-ghost" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
+    <span>Page ${currentPage} of ${total}</span>
+    <button class="btn btn-ghost" onclick="goPage(${currentPage + 1})" ${currentPage === total ? 'disabled' : ''}>Next →</button>
+  `;
+}
+
+function goPage(p) { currentPage = p; renderTable(); window.scrollTo({ top: 0 }); }
+
+function exportCSV() {
+  const rows = [['TX Hash', 'Block', 'Input Address', 'Input ADA', 'Output Address', 'Output ADA']];
+  allTxs.forEach(tx => {
+    const maxLen = Math.max(tx.inputs.length, tx.outputs.length, 1);
+    for (let i = 0; i < maxLen; i++) {
+      const inp = tx.inputs[i];
+      const out = tx.outputs[i];
+      const inAda  = inp ? fmt(lovelace(inp.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
+      const outAda = out ? fmt(lovelace(out.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
+      const inLbl  = inp ? (getLabel(inp.address)?.name || '') : '';
+      const outLbl = out ? (getLabel(out.address)?.name || '') : '';
+      rows.push([
+        i === 0 ? tx.hash : '',
+        i === 0 ? tx.block : '',
+        inp ? `${inLbl ? '['+inLbl+'] ' : ''}${inp.address}` : '',
+        inAda,
+        out ? `${outLbl ? '['+outLbl+'] ' : ''}${out.address}` : '',
+        outAda
+      ]);
+    }
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'cardano-transactions.csv';
+  a.click();
+}
+
+document.getElementById('stake').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchAccount();
+});
+
+// Start with one empty label row
+addLabelRow();
+</script>
+</body>
+</html>
