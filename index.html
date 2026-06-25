@@ -1,4 +1,4 @@
-<!-- v1.8 -->
+<!-- v1.9 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -452,20 +452,10 @@ async function fetchAccount() {
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
-    const chunks = [];
-    for (let i = 0; i < txList.length; i += 10) chunks.push(txList.slice(i, i + 10));
-
-    const details = [];
-    for (const chunk of chunks) {
-      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null)));
-      details.push(...res);
-    }
-
-    const utxos = [];
-    for (const chunk of chunks) {
-      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
-      utxos.push(...res);
-    }
+    const [details, utxos] = await Promise.all([
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null))),
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)))
+    ]);
 
     allTxs = txList.map((t, i) => {
       const d = details[i];
