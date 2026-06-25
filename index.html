@@ -269,7 +269,13 @@
         Export CSV
       </button>
     </div>
-    <div class="table-wrap">
+    <div style="display:flex; gap:1rem; align-items:flex-start;">
+      <div id="labels-sidebar" style="display:none; flex-shrink:0; width:220px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
+        <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
+        <div id="labels-list"></div>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -281,7 +287,10 @@
         <tbody id="tx-body"></tbody>
       </table>
     </div>
-    <div class="pagination" id="pagination"></div>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -321,6 +330,25 @@ function closePopup(e) {
   popupAddr = null;
 }
 
+function renderLabels() {
+  const sidebar = document.getElementById('labels-sidebar');
+  const list    = document.getElementById('labels-list');
+  if (labels.size === 0) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+  list.innerHTML = [...labels.entries()].map(([addr, lbl]) => `
+    <div style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+      <div style="margin-bottom:4px;">
+        <span class="label-chip ${lbl.color}" style="cursor:pointer" data-addr="${escHtml(addr)}">${escHtml(lbl.name)}</span>
+      </div>
+      <div style="font-family:var(--mono); font-size:10px; color:var(--muted); word-break:break-all;">${escHtml(addr)}</div>
+    </div>`
+  ).join('');
+  // clicking a chip in the sidebar opens the popup too
+  list.querySelectorAll('.label-chip').forEach(el => {
+    el.addEventListener('click', () => openPopup(el.dataset.addr));
+  });
+}
+
 function saveLabel() {
   const name = document.getElementById('popup-input').value.trim();
   if (!popupAddr) return;
@@ -334,6 +362,7 @@ function saveLabel() {
   document.getElementById('popup-overlay').classList.remove('open');
   popupAddr = null;
   renderTable();
+  renderLabels();
 }
 
 function removeLabel() {
@@ -341,6 +370,7 @@ function removeLabel() {
   document.getElementById('popup-overlay').classList.remove('open');
   popupAddr = null;
   renderTable();
+  renderLabels();
 }
 
 // Enter key saves
