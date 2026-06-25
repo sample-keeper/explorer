@@ -1,4 +1,4 @@
-<!-- v1.2 -->
+<!-- v1.3 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -299,21 +299,20 @@
       </div>
       <div style="flex:1; min-width:0;">
         <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th class="col-hash">TX Hash</th>
-            <th class="col-inputs">Inputs</th>
-            <th class="col-outputs">Outputs</th>
-          </tr>
-        </thead>
-        <tbody id="tx-body"></tbody>
-      </table>
-    </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="col-hash">TX Hash</th>
+                <th class="col-inputs">Inputs</th>
+                <th class="col-outputs">Outputs</th>
+              </tr>
+            </thead>
+            <tbody id="tx-body"></tbody>
+          </table>
         </div>
-        <div class="pagination" id="pagination"></div>
       </div>
     </div>
+    <div class="pagination" id="pagination"></div>
   </div>
 </main>
 
@@ -510,6 +509,26 @@ function renderMeta(acct, count) {
 
 const COLLAPSE_THRESHOLD = 5;
 
+function formatAssetName(hex) {
+  try {
+    const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b, 16));
+    const str = String.fromCharCode(...bytes);
+    // only return if printable ASCII
+    if (/^[\x20-\x7E]+$/.test(str)) return str;
+  } catch {}
+  return hex.slice(0, 8) + '…';
+}
+
+function tokenRows(amounts) {
+  const tokens = (amounts || []).filter(a => a.unit !== 'lovelace');
+  if (!tokens.length) return '';
+  return tokens.map(t => {
+    const qty = parseInt(t.quantity).toLocaleString();
+    const name = t.unit === 'lovelace' ? 'ADA' : formatAssetName(t.unit.slice(56)) || t.unit.slice(0, 10) + '…';
+    return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px;">${qty} ${name}</div>`;
+  }).join('');
+}
+
 function utxoRows(list, txHash, side) {
   if (!list || list.length === 0) return '<span style="color:var(--muted);font-size:12px">—</span>';
   const needsCollapse = list.length > COLLAPSE_THRESHOLD;
@@ -522,6 +541,7 @@ function utxoRows(list, txHash, side) {
     const hiddenClass = needsCollapse && i >= COLLAPSE_THRESHOLD ? ' hidden' : '';
     return `<div class="utxo-entry${hiddenClass}">
       <div class="utxo-top">${chipHtml}<span class="utxo-ada">${adaVal}</span></div>
+      ${tokenRows(u.amount)}
       <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
     </div>`;
   }).join('');
