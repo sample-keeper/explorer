@@ -1,4 +1,4 @@
-<!-- v1.6 -->
+<!-- v1.7 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -286,15 +286,15 @@
         Export CSV
       </button>
     </div>
+    <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
+      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Trades</div>
+      <div id="trades-list"></div>
+    </div>
     <div style="display:flex; gap:1rem; align-items:flex-start;">
       <div style="display:flex; flex-direction:column; gap:1rem; flex-shrink:0; width:220px;">
         <div id="labels-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
           <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
           <div id="labels-list"></div>
-        </div>
-        <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
-          <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Trades</div>
-          <div id="trades-list"></div>
         </div>
       </div>
       <div style="flex:1; min-width:0;">
@@ -515,7 +515,7 @@ function formatAssetName(hex) {
     const str = String.fromCharCode(...bytes);
     if (/^[\x20-\x7E]+$/.test(str)) return str;
   } catch {}
-  return hex;
+  return 'null';
 }
 
 function fmt4sig(n) {
@@ -547,7 +547,7 @@ function tokenRows(amounts) {
     const qty      = fmt4sig(parseInt(t.quantity));
     const policyId = t.unit.slice(0, 56);
     const nameHex  = t.unit.slice(56);
-    const name     = nameHex ? formatAssetName(nameHex) : policyId.slice(0, 10) + '…';
+    const name     = nameHex ? formatAssetName(nameHex) : 'null';
     const url      = `https://adastat.net/tokens/${t.unit}`;
     return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px; word-break:break-all;">
       ${qty} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
