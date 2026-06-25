@@ -95,35 +95,13 @@
     #status { font-size: 13px; color: var(--muted); margin-top: 0.75rem; min-height: 20px; }
     #status.error { color: var(--red); }
 
-    /* Labels panel */
-    .labels-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
+    /* Clickable address */
+    .utxo-addr {
+      font-family: var(--mono); font-size: 11px; color: var(--muted);
+      word-break: break-all; cursor: pointer; transition: color 0.15s;
     }
-    .labels-card h2 {
-      font-size: 14px; font-weight: 500; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1rem;
-    }
-    .label-row {
-      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
-    }
-    .label-row input.lbl-name {
-      width: 140px; flex-shrink: 0;
-      background: var(--bg); border: 1px solid var(--border2);
-      border-radius: 6px; color: var(--text); font-size: 13px;
-      padding: 6px 10px; outline: none;
-    }
-    .label-row input.lbl-name:focus { border-color: var(--accent); }
-    .label-row input.lbl-addr {
-      flex: 1;
-      background: var(--bg); border: 1px solid var(--border2);
-      border-radius: 6px; color: var(--text); font-size: 12px;
-      font-family: var(--mono); padding: 6px 10px; outline: none;
-    }
-    .label-row input.lbl-addr:focus { border-color: var(--accent); }
+    .utxo-addr:hover { color: var(--accent); text-decoration: underline; }
+
     .label-chip {
       display: inline-flex; align-items: center; gap: 4px;
       background: var(--accent-dim); color: var(--accent);
@@ -133,6 +111,37 @@
     .label-chip.yellow { background: var(--amber-dim); color: var(--amber); }
     .label-chip.blue   { background: rgba(96,165,250,0.12); color: var(--blue); }
     .label-chip.red    { background: var(--red-dim); color: var(--red); }
+
+    /* Popup */
+    .popup-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    .popup-overlay.open { display: flex; }
+    .popup {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 14px; padding: 1.5rem; width: 480px; max-width: 94vw;
+    }
+    .popup h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .popup .popup-addr {
+      font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+      word-break: break-all; margin-bottom: 1rem; line-height: 1.5;
+    }
+    .popup input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border2);
+      border-radius: 8px; color: var(--text); font-size: 14px;
+      padding: 10px 14px; outline: none; margin-bottom: 1rem;
+      transition: border-color 0.15s;
+    }
+    .popup input:focus { border-color: var(--accent); }
+    .popup-btns { display: flex; gap: 8px; justify-content: flex-end; }
+    .popup-remove {
+      margin-right: auto; background: transparent; color: var(--red);
+      border: 1px solid var(--red-dim); font-size: 13px; font-weight: 500;
+      border-radius: 8px; padding: 8px 14px; cursor: pointer;
+    }
+    .popup-remove:hover { background: var(--red-dim); }
 
     /* Meta */
     .meta-grid {
@@ -174,10 +183,6 @@
     .utxo-list { display: flex; flex-direction: column; gap: 6px; }
     .utxo-entry { display: flex; flex-direction: column; gap: 2px; }
     .utxo-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .utxo-addr {
-      font-family: var(--mono); font-size: 11px; color: var(--muted);
-      word-break: break-all;
-    }
     .utxo-ada { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; flex-shrink: 0; }
 
     .hash-cell { font-family: var(--mono); font-size: 11px; }
@@ -224,6 +229,20 @@
 </header>
 
 <main>
+  <!-- Label popup -->
+  <div class="popup-overlay" id="popup-overlay" onclick="closePopup(event)">
+    <div class="popup">
+      <h3>Label address</h3>
+      <div class="popup-addr" id="popup-addr"></div>
+      <input id="popup-input" type="text" placeholder="Enter a label…" />
+      <div class="popup-btns">
+        <button class="popup-remove" id="popup-remove" onclick="removeLabel()">Remove label</button>
+        <button class="btn btn-ghost" onclick="closePopup()">Cancel</button>
+        <button class="btn" onclick="saveLabel()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Search -->
   <div class="search-card">
     <h2>Lookup</h2>
@@ -238,13 +257,6 @@
       </button>
     </div>
     <div id="status"></div>
-  </div>
-
-  <!-- Address Labels -->
-  <div class="labels-card">
-    <h2>Address Labels</h2>
-    <div id="label-rows"></div>
-    <button class="btn btn-ghost btn-sm" onclick="addLabelRow()" style="margin-top:8px">+ Add label</button>
   </div>
 
   <!-- Results -->
@@ -285,56 +297,57 @@ let allTxs      = [];
 let currentPage = 1;
 const PAGE_SIZE = 25;
 
-// ── Label colours cycling ──────────────────────────────────────────
+// labels: Map<address, { name, color }>
+const labels = new Map();
 const CHIP_CLASSES = ['', 'yellow', 'blue', 'red'];
-let labelColorIdx  = 0;
+let colorIdx = 0;
 
-// labels: [ { name, address, color } ]
-let labels = [];
+let popupAddr = null;
 
-function addLabelRow(name = '', address = '', color = null) {
-  const c = color ?? CHIP_CLASSES[labelColorIdx % CHIP_CLASSES.length];
-  labelColorIdx++;
-  const idx = labels.length;
-  labels.push({ name, address, color: c });
-
-  const container = document.getElementById('label-rows');
-  const row = document.createElement('div');
-  row.className = 'label-row';
-  row.dataset.idx = idx;
-  row.innerHTML = `
-    <input class="lbl-name" placeholder="Label name" value="${escHtml(name)}"
-      oninput="updateLabel(${idx},'name',this.value)" />
-    <input class="lbl-addr" placeholder="addr1 or stake1 address" value="${escHtml(address)}"
-      oninput="updateLabel(${idx},'address',this.value)" />
-    <span class="label-chip ${c}" id="chip-${idx}">${escHtml(name) || 'label'}</span>
-    <button class="btn btn-ghost btn-sm" onclick="removeLabelRow(this,${idx})">✕</button>
-  `;
-  container.appendChild(row);
-  renderTable();
+// ── Popup ──────────────────────────────────────────────────────────
+function openPopup(addr) {
+  popupAddr = addr;
+  document.getElementById('popup-addr').textContent = addr;
+  const existing = labels.get(addr);
+  document.getElementById('popup-input').value = existing ? existing.name : '';
+  document.getElementById('popup-remove').style.display = existing ? 'block' : 'none';
+  document.getElementById('popup-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('popup-input').focus(), 50);
 }
 
-function updateLabel(idx, field, val) {
-  labels[idx][field] = val;
-  if (field === 'name') {
-    const chip = document.getElementById(`chip-${idx}`);
-    if (chip) chip.textContent = val || 'label';
+function closePopup(e) {
+  if (e && e.target !== document.getElementById('popup-overlay')) return;
+  document.getElementById('popup-overlay').classList.remove('open');
+  popupAddr = null;
+}
+
+function saveLabel() {
+  const name = document.getElementById('popup-input').value.trim();
+  if (!popupAddr) return;
+  if (name) {
+    const existing = labels.get(popupAddr);
+    const color = existing ? existing.color : CHIP_CLASSES[colorIdx++ % CHIP_CLASSES.length];
+    labels.set(popupAddr, { name, color });
+  } else {
+    labels.delete(popupAddr);
   }
+  document.getElementById('popup-overlay').classList.remove('open');
+  popupAddr = null;
   renderTable();
 }
 
-function removeLabelRow(btn, idx) {
-  labels[idx] = null;
-  btn.closest('.label-row').remove();
+function removeLabel() {
+  if (popupAddr) labels.delete(popupAddr);
+  document.getElementById('popup-overlay').classList.remove('open');
+  popupAddr = null;
   renderTable();
 }
 
-function getLabel(addr) {
-  for (const l of labels) {
-    if (l && l.address && l.address.trim() === addr) return l;
-  }
-  return null;
-}
+// Enter key saves
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { document.getElementById('popup-overlay').classList.remove('open'); popupAddr = null; }
+  if (e.key === 'Enter' && document.getElementById('popup-overlay').classList.contains('open')) saveLabel();
+});
 
 // ── Utilities ──────────────────────────────────────────────────────
 function escHtml(s) {
@@ -433,12 +446,12 @@ async function fetchAccount() {
 function renderMeta(acct, count) {
   const pool = acct.pool_id ? acct.pool_id.slice(0, 12) + '…' : 'Not delegating';
   const cards = [
-    { label: 'Controlled ADA',      value: fmt(lovelace(acct.controlled_amount)),   ada: true  },
-    { label: 'Rewards available',   value: fmt(lovelace(acct.withdrawable_amount)), ada: true  },
-    { label: 'Total rewards earned',value: fmt(lovelace(acct.rewards_sum)),         ada: true  },
-    { label: 'Total deposits',      value: fmt(lovelace(acct.deposits_sum)),        ada: true  },
-    { label: 'Transactions',        value: count.toLocaleString(),                  ada: false },
-    { label: 'Stake pool',          value: pool,                                    ada: false },
+    { label: 'Controlled ADA',       value: fmt(lovelace(acct.controlled_amount)),   ada: true  },
+    { label: 'Rewards available',    value: fmt(lovelace(acct.withdrawable_amount)), ada: true  },
+    { label: 'Total rewards earned', value: fmt(lovelace(acct.rewards_sum)),         ada: true  },
+    { label: 'Total deposits',       value: fmt(lovelace(acct.deposits_sum)),        ada: true  },
+    { label: 'Transactions',         value: count.toLocaleString(),                  ada: false },
+    { label: 'Stake pool',           value: pool,                                    ada: false },
   ];
   document.getElementById('meta-grid').innerHTML = cards.map(c =>
     `<div class="metric">
@@ -455,16 +468,15 @@ function utxoRows(list) {
     const addr   = u.address || '';
     const ada    = u.amount?.find(a => a.unit === 'lovelace');
     const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000) + ' ₳' : '—';
-    const lbl    = getLabel(addr);
+    const lbl    = labels.get(addr);
     const chipHtml = lbl
-      ? `<span class="label-chip ${lbl.color}">${escHtml(lbl.name || 'label')}</span>`
+      ? `<span class="label-chip ${lbl.color}">${escHtml(lbl.name)}</span> `
       : '';
     return `<div class="utxo-entry">
       <div class="utxo-top">
-        ${chipHtml}
-        <span class="utxo-ada">${adaVal}</span>
+        ${chipHtml}<span class="utxo-ada">${adaVal}</span>
       </div>
-      <div class="utxo-addr">${escHtml(addr)}</div>
+      <div class="utxo-addr" onclick="openPopup(${JSON.stringify(addr)})">${escHtml(addr)}</div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -506,7 +518,7 @@ function renderPagination() {
 function goPage(p) { currentPage = p; renderTable(); window.scrollTo({ top: 0 }); }
 
 function exportCSV() {
-  const rows = [['TX Hash', 'Block', 'Input Address', 'Input ADA', 'Output Address', 'Output ADA']];
+  const rows = [['TX Hash', 'Block', 'Input Label', 'Input Address', 'Input ADA', 'Output Label', 'Output Address', 'Output ADA']];
   allTxs.forEach(tx => {
     const maxLen = Math.max(tx.inputs.length, tx.outputs.length, 1);
     for (let i = 0; i < maxLen; i++) {
@@ -514,14 +526,14 @@ function exportCSV() {
       const out = tx.outputs[i];
       const inAda  = inp ? fmt(lovelace(inp.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
       const outAda = out ? fmt(lovelace(out.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
-      const inLbl  = inp ? (getLabel(inp.address)?.name || '') : '';
-      const outLbl = out ? (getLabel(out.address)?.name || '') : '';
       rows.push([
-        i === 0 ? tx.hash : '',
+        i === 0 ? tx.hash  : '',
         i === 0 ? tx.block : '',
-        inp ? `${inLbl ? '['+inLbl+'] ' : ''}${inp.address}` : '',
+        inp ? (labels.get(inp.address)?.name || '') : '',
+        inp ? inp.address : '',
         inAda,
-        out ? `${outLbl ? '['+outLbl+'] ' : ''}${out.address}` : '',
+        out ? (labels.get(out.address)?.name || '') : '',
+        out ? out.address : '',
         outAda
       ]);
     }
@@ -536,9 +548,6 @@ function exportCSV() {
 document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
 });
-
-// Start with one empty label row
-addLabelRow();
 </script>
 </body>
 </html>
