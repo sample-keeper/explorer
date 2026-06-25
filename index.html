@@ -1,4 +1,4 @@
-<!-- v1.5 -->
+<!-- v1.6 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -548,7 +548,7 @@ function tokenRows(amounts) {
     const policyId = t.unit.slice(0, 56);
     const nameHex  = t.unit.slice(56);
     const name     = nameHex ? formatAssetName(nameHex) : policyId.slice(0, 10) + '…';
-    const url      = `https://adastat.net/tokens/${policyId}`;
+    const url      = `https://adastat.net/tokens/${t.unit}`;
     return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px; word-break:break-all;">
       ${qty} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
       <span style="color:var(--muted); font-size:9.5px; display:block;">${policyId}</span>
