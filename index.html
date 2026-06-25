@@ -476,7 +476,7 @@ function utxoRows(list) {
       <div class="utxo-top">
         ${chipHtml}<span class="utxo-ada">${adaVal}</span>
       </div>
-      <div class="utxo-addr" onclick="openPopup(${JSON.stringify(addr)})">${escHtml(addr)}</div>
+      <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
     </div>`;
   }).join('')}</div>`;
 }
@@ -547,6 +547,12 @@ function exportCSV() {
 
 document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
+});
+
+// Event delegation — catches clicks on any .utxo-addr even after re-renders
+document.getElementById('tx-body').addEventListener('click', e => {
+  const el = e.target.closest('.utxo-addr');
+  if (el) openPopup(el.dataset.addr);
 });
 </script>
 </body>
