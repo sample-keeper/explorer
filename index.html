@@ -189,6 +189,16 @@
     .hash-cell a { color: var(--blue); text-decoration: none; }
     .hash-cell a:hover { text-decoration: underline; }
 
+    .trade-add-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; margin-left: 6px;
+      background: var(--surface2); border: 1px solid var(--border2);
+      border-radius: 4px; color: var(--muted); font-size: 13px; line-height: 1;
+      cursor: pointer; vertical-align: middle; transition: all 0.15s; flex-shrink: 0;
+    }
+    .trade-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .trade-add-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
     .pagination { display: flex; align-items: center; gap: 10px; margin-top: 1rem; justify-content: center; }
     .pagination span { font-size: 13px; color: var(--muted); }
 
@@ -273,6 +283,10 @@
       <div id="labels-sidebar" style="display:none; flex-shrink:0; width:220px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
         <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
         <div id="labels-list"></div>
+      </div>
+      <div id="trades-sidebar" style="display:none; flex-shrink:0; width:220px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
+        <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Trades</div>
+        <div id="trades-list"></div>
       </div>
       <div style="flex:1; min-width:0;">
         <div class="table-wrap">
@@ -521,6 +535,7 @@ function renderTable() {
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
           ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
         </a>
+        <button class="trade-add-btn${trades.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}" title="${trades.has(tx.hash) ? 'Remove from trades' : 'Add to trades'}">${trades.has(tx.hash) ? '✓' : '+'}</button>
       </td>
       <td class="col-inputs">
         <div class="utxo-col-label">Inputs</div>
@@ -575,14 +590,55 @@ function exportCSV() {
   a.click();
 }
 
+// trades: Map<hash, tx>
+const trades = new Map();
+
+function toggleTrade(hash) {
+  if (trades.has(hash)) {
+    trades.delete(hash);
+  } else {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (tx) trades.set(hash, tx);
+  }
+  renderTrades();
+  // update button state without full re-render
+  const btn = document.querySelector(`.trade-add-btn[data-hash="${hash}"]`);
+  if (btn) {
+    btn.textContent = trades.has(hash) ? '✓' : '+';
+    btn.classList.toggle('active', trades.has(hash));
+  }
+}
+
+function renderTrades() {
+  const sidebar = document.getElementById('trades-sidebar');
+  const list    = document.getElementById('trades-list');
+  if (trades.size === 0) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+  list.innerHTML = [...trades.values()].map(tx => {
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const short = tx.hash.slice(0, 8) + '…' + tx.hash.slice(-6);
+    return `<div style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:4px;">
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener"
+           style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none;">${short}</a>
+        <button onclick="toggleTrade('${tx.hash}')"
+          style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; line-height:1;" title="Remove">✕</button>
+      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:2px;">${date}</div>
+    </div>`;
+  }).join('');
+}
+
 document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
 });
 
 // Event delegation — catches clicks on any .utxo-addr even after re-renders
 document.getElementById('tx-body').addEventListener('click', e => {
-  const el = e.target.closest('.utxo-addr');
-  if (el) openPopup(el.dataset.addr);
+  const addr = e.target.closest('.utxo-addr');
+  if (addr) { openPopup(addr.dataset.addr); return; }
+  const tradeBtn = e.target.closest('.trade-add-btn');
+  if (tradeBtn) toggleTrade(tradeBtn.dataset.hash);
 });
 </script>
 </body>
