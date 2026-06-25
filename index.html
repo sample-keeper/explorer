@@ -1,4 +1,4 @@
-<!-- v1.3 -->
+<!-- v1.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -513,19 +513,46 @@ function formatAssetName(hex) {
   try {
     const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b, 16));
     const str = String.fromCharCode(...bytes);
-    // only return if printable ASCII
     if (/^[\x20-\x7E]+$/.test(str)) return str;
   } catch {}
-  return hex.slice(0, 8) + '…';
+  return hex;
+}
+
+function fmt4sig(n) {
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  const tiers = [
+    [1e12, 't'],
+    [1e9,  'b'],
+    [1e6,  'm'],
+    [1e3,  'k'],
+    [1,    '' ],
+  ];
+  for (const [div, suffix] of tiers) {
+    if (abs >= div) {
+      const val = abs / div;
+      // 4 significant figures, strip trailing zeros
+      const str = parseFloat(val.toPrecision(4)).toString();
+      return sign + str + suffix;
+    }
+  }
+  return String(n);
 }
 
 function tokenRows(amounts) {
   const tokens = (amounts || []).filter(a => a.unit !== 'lovelace');
   if (!tokens.length) return '';
   return tokens.map(t => {
-    const qty = parseInt(t.quantity).toLocaleString();
-    const name = t.unit === 'lovelace' ? 'ADA' : formatAssetName(t.unit.slice(56)) || t.unit.slice(0, 10) + '…';
-    return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px;">${qty} ${name}</div>`;
+    const qty      = fmt4sig(parseInt(t.quantity));
+    const policyId = t.unit.slice(0, 56);
+    const nameHex  = t.unit.slice(56);
+    const name     = nameHex ? formatAssetName(nameHex) : policyId.slice(0, 10) + '…';
+    const url      = `https://adastat.net/tokens/${policyId}`;
+    return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px; word-break:break-all;">
+      ${qty} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+      <span style="color:var(--muted); font-size:9.5px; display:block;">${policyId}</span>
+    </div>`;
   }).join('');
 }
 
