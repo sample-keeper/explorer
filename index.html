@@ -1,4 +1,4 @@
-<!-- v1.1 -->
+<!-- v1.2 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -427,15 +427,8 @@ async function bf(path) {
 }
 
 async function fetchAllTxs(stake) {
-  let page = 1, results = [];
-  while (true) {
-    const batch = await bf(`/accounts/${stake}/transactions?count=100&page=${page}&order=desc`);
-    results = results.concat(batch);
-    if (batch.length < 100) break;
-    page++;
-    setStatus(`<span class="spinner"></span> Loading transactions… ${results.length} so far`);
-  }
-  return results;
+  const batch = await bf(`/accounts/${stake}/transactions?count=50&page=1&order=desc`);
+  return batch;
 }
 
 async function fetchAccount() {
