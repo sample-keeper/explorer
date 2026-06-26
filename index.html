@@ -1,4 +1,4 @@
-<!-- v1.8 -->
+<!-- v1.9 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -289,10 +289,11 @@
     <div id="portfolio-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
       <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Portfolio Tracker</div>
       <div id="portfolio-list"></div>
-      <div id="portfolio-total" style="margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border); font-size:13px; display:flex; justify-content:space-between; gap:1rem;">
-        <span style="color:var(--muted);">Total deposited</span><span id="pt-deposited" style="font-family:var(--mono); color:var(--accent);">0</span>
-        <span style="color:var(--muted);">Total withdrawn</span><span id="pt-withdrawn" style="font-family:var(--mono); color:var(--red);">0</span>
-        <span style="color:var(--muted);">Net</span><span id="pt-net" style="font-family:var(--mono); font-weight:600;">0</span>
+      <div id="portfolio-total" style="margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border); font-size:13px; display:flex; flex-direction:column; gap:6px;">
+        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Total deposited</span><span id="pt-deposited" style="font-family:var(--mono); color:var(--accent);">0</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Total withdrawn</span><span id="pt-withdrawn" style="font-family:var(--mono); color:var(--red);">0</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Net</span><span id="pt-net" style="font-family:var(--mono); font-weight:600;">0</span></div>
+        <div id="pt-usd-row" style="display:none; justify-content:space-between;"><span style="color:var(--muted);">Value in USD</span><span id="pt-usd" style="font-family:var(--mono); font-weight:600;"></span></div>
       </div>
     </div>
     <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
@@ -657,22 +658,24 @@ function exportCSV() {
 // trades: Map<hash, tx>
 const trades = new Map();
 
-// portfolio: Map<hash, { deposit: number, withdraw: number }>
+// portfolio: Map<hash, { deposit: number, withdraw: number, adaPrice: number }>
 const portfolio = new Map();
 
 function toggleTrade(hash) {
   if (trades.has(hash)) {
     trades.delete(hash);
     portfolio.delete(hash);
+    renderTrades();
+    rebuildPortfolioRows();
   } else {
     const tx = allTxs.find(t => t.hash === hash);
     if (tx) {
       trades.set(hash, tx);
-      portfolio.set(hash, { deposit: 0, withdraw: 0 });
+      portfolio.set(hash, { deposit: 0, withdraw: 0, adaPrice: 0 });
+      renderTrades();
+      rebuildPortfolioRows();
     }
   }
-  renderTrades();
-  renderPortfolio();
   const btn = document.querySelector(`.trade-add-btn[data-hash="${hash}"]`);
   if (btn) {
     btn.textContent = trades.has(hash) ? '✓' : '+';
@@ -680,67 +683,106 @@ function toggleTrade(hash) {
   }
 }
 
-function updatePortfolioField(hash, field, value) {
-  const entry = portfolio.get(hash);
-  if (!entry) return;
-  entry[field] = parseFloat(value) || 0;
-  renderPortfolio();
-}
-
-function renderPortfolio() {
+// Full rebuild — called only when trades are added/removed
+function rebuildPortfolioRows() {
   const sidebar = document.getElementById('portfolio-sidebar');
   const list    = document.getElementById('portfolio-list');
   if (portfolio.size === 0) { sidebar.style.display = 'none'; return; }
   sidebar.style.display = 'block';
 
-  let runningDeposit = 0, runningWithdraw = 0;
-
-  const rows = [...trades.keys()].filter(h => portfolio.has(h)).map(hash => {
-    const tx  = trades.get(hash);
-    const p   = portfolio.get(hash);
+  list.innerHTML = [...trades.keys()].filter(h => portfolio.has(h)).map(hash => {
+    const tx    = trades.get(hash);
+    const p     = portfolio.get(hash);
     const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     const short = hash.slice(0, 8) + '…' + hash.slice(-6);
-    runningDeposit  += p.deposit;
-    runningWithdraw += p.withdraw;
-    const net = runningDeposit - runningWithdraw;
-    const netColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+    return `<div class="pt-row" data-hash="${hash}" style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
         <div>
           <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
              style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none;">${short}</a>
           <span style="font-size:11px; color:var(--muted); margin-left:6px;">${date}</span>
         </div>
-        <span style="font-size:11px; font-family:var(--mono); color:${netColor}; font-weight:600;">= ${fmt(net, 2)}</span>
+        <span class="pt-running" style="font-size:11px; font-family:var(--mono); font-weight:600;"></span>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
         <div>
           <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Deposit</div>
           <input type="number" min="0" step="any" value="${p.deposit || ''}" placeholder="0"
-            oninput="updatePortfolioField('${hash}','deposit',this.value)"
+            data-hash="${hash}" data-field="deposit"
             style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
                    color:var(--accent); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
         </div>
         <div>
           <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Withdraw</div>
           <input type="number" min="0" step="any" value="${p.withdraw || ''}" placeholder="0"
-            oninput="updatePortfolioField('${hash}','withdraw',this.value)"
+            data-hash="${hash}" data-field="withdraw"
             style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
                    color:var(--red); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
         </div>
+        <div>
+          <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">ADA Price $</div>
+          <input type="number" min="0" step="any" value="${p.adaPrice || ''}" placeholder="0.00"
+            data-hash="${hash}" data-field="adaPrice"
+            style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+                   color:var(--amber); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
+        </div>
       </div>
     </div>`;
+  }).join('');
+
+  updatePortfolioTotals();
+}
+
+// Light update — only recomputes running totals and USD, never touches inputs
+function updatePortfolioTotals() {
+  const sidebar = document.getElementById('portfolio-sidebar');
+  if (!portfolio.size) { sidebar.style.display = 'none'; return; }
+
+  let runDep = 0, runWith = 0, lastPrice = 0;
+
+  [...trades.keys()].filter(h => portfolio.has(h)).forEach(hash => {
+    const p   = portfolio.get(hash);
+    const row = document.querySelector(`.pt-row[data-hash="${hash}"]`);
+    runDep  += p.deposit;
+    runWith += p.withdraw;
+    if (p.adaPrice > 0) lastPrice = p.adaPrice;
+    const net = runDep - runWith;
+    const netColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+    if (row) {
+      const span = row.querySelector('.pt-running');
+      span.textContent = (net >= 0 ? '= +' : '= ') + fmt(net, 2);
+      span.style.color = netColor;
+    }
   });
 
-  list.innerHTML = rows.join('');
-
-  const totalNet = runningDeposit - runningWithdraw;
-  document.getElementById('pt-deposited').textContent = fmt(runningDeposit, 2);
-  document.getElementById('pt-withdrawn').textContent = fmt(runningWithdraw, 2);
+  const totalNet = runDep - runWith;
+  document.getElementById('pt-deposited').textContent = fmt(runDep, 2);
+  document.getElementById('pt-withdrawn').textContent = fmt(runWith, 2);
   const netEl = document.getElementById('pt-net');
   netEl.textContent = (totalNet >= 0 ? '+' : '') + fmt(totalNet, 2);
   netEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--red)';
+
+  const usdEl = document.getElementById('pt-usd');
+  if (lastPrice > 0) {
+    usdEl.textContent = '$ ' + fmt(totalNet * lastPrice, 2);
+    usdEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    document.getElementById('pt-usd-row').style.display = 'flex';
+  } else {
+    document.getElementById('pt-usd-row').style.display = 'none';
+  }
 }
+
+// Single delegated listener on portfolio list — no re-renders
+document.getElementById('portfolio-list').addEventListener('input', e => {
+  const input = e.target.closest('input[data-hash]');
+  if (!input) return;
+  const hash  = input.dataset.hash;
+  const field = input.dataset.field;
+  const entry = portfolio.get(hash);
+  if (!entry) return;
+  entry[field] = parseFloat(input.value) || 0;
+  updatePortfolioTotals();
+});
 
 function renderTrades() {
   const sidebar = document.getElementById('trades-sidebar');
