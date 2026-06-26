@@ -1,4 +1,4 @@
-<!-- v2.4 -->
+<!-- v2.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -493,12 +493,15 @@ async function fetchAccount() {
       const d = details[i];
       const u = utxos[i];
       return {
-        hash:    t.tx_hash,
-        time:    t.block_time,
-        block:   t.block_height,
-        fees:    d?.fees || 0,
-        inputs:  u ? u.inputs  : [],
-        outputs: u ? u.outputs : []
+        hash:              t.tx_hash,
+        time:              t.block_time,
+        block:             t.block_height,
+        fees:              d?.fees || 0,
+        inputs:            u ? u.inputs.filter(x => !x.collateral && !x.reference) : [],
+        outputs:           u ? u.outputs.filter(x => !x.collateral) : [],
+        collateralInputs:  u ? u.inputs.filter(x => x.collateral)   : [],
+        referenceInputs:   u ? u.inputs.filter(x => x.reference)    : [],
+        collateralOutputs: u ? u.outputs.filter(x => x.collateral)  : [],
       };
     });
 
@@ -608,6 +611,25 @@ function utxoRows(list, txHash, side) {
   return `<div class="utxo-list">${rows}${expandBtn}</div>`;
 }
 
+function collateralDetails(tx) {
+  const sections = [];
+  if (tx.collateralInputs?.length)  sections.push({ label: `Collateral Inputs (${tx.collateralInputs.length})`,   list: tx.collateralInputs  });
+  if (tx.referenceInputs?.length)   sections.push({ label: `Reference Inputs (${tx.referenceInputs.length})`,    list: tx.referenceInputs   });
+  if (tx.collateralOutputs?.length) sections.push({ label: `Collateral Outputs (${tx.collateralOutputs.length})`, list: tx.collateralOutputs });
+  if (!sections.length) return '';
+  const inner = sections.map(s => `
+    <div style="margin-bottom:6px;">
+      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">${s.label}</div>
+      ${utxoRows(s.list, tx.hash, 'collateral')}
+    </div>`).join('');
+  return `<details style="margin-top:6px;">
+    <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none; letter-spacing:0.04em;">
+      ▸ Collateral / Reference
+    </summary>
+    <div style="margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">${inner}</div>
+  </details>`;
+}
+
 function renderTable() {
   if (!allTxs.length) return;
   const start = (currentPage - 1) * PAGE_SIZE;
@@ -623,6 +645,7 @@ function renderTable() {
       <td class="col-inputs">
         <div class="utxo-col-label">Inputs</div>
         ${utxoRows(tx.inputs, tx.hash, 'inputs')}
+        ${collateralDetails(tx)}
       </td>
       <td class="col-outputs">
         <div class="utxo-col-label">Outputs</div>
