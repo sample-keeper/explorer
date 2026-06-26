@@ -1,4 +1,4 @@
-<!-- v1.9 -->
+<!-- v1.7 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -333,9 +333,6 @@ const labels = new Map();
 const CHIP_CLASSES = ['', 'yellow', 'blue', 'red'];
 let colorIdx = 0;
 
-// own addresses belonging to the searched stake key
-let myAddresses = new Set();
-
 let popupAddr = null;
 
 // ── Popup ──────────────────────────────────────────────────────────
@@ -442,20 +439,27 @@ async function fetchAccount() {
   setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
-    const [acct, txList, addrList] = await Promise.all([
+    const [acct, txList] = await Promise.all([
       bf(`/accounts/${stake}`),
-      fetchAllTxs(stake),
-      bf(`/accounts/${stake}/addresses?count=100`).catch(() => [])
+      fetchAllTxs(stake)
     ]);
-
-    myAddresses = new Set(addrList.map(a => a.address));
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
-    const [details, utxos] = await Promise.all([
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null))),
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)))
-    ]);
+    const chunks = [];
+    for (let i = 0; i < txList.length; i += 10) chunks.push(txList.slice(i, i + 10));
+
+    const details = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null)));
+      details.push(...res);
+    }
+
+    const utxos = [];
+    for (const chunk of chunks) {
+      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
+      utxos.push(...res);
+    }
 
     allTxs = txList.map((t, i) => {
       const d = details[i];
@@ -562,13 +566,10 @@ function utxoRows(list, txHash, side) {
     const lbl    = labels.get(addr);
     const chipHtml = lbl ? `<span class="label-chip ${lbl.color}">${escHtml(lbl.name)}</span> ` : '';
     const hiddenClass = needsCollapse && i >= COLLAPSE_THRESHOLD ? ' hidden' : '';
-    const isOwn  = myAddresses.has(addr);
-    const addrStyle = isOwn ? 'color:var(--accent);' : '';
-    const ownDot    = isOwn ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;flex-shrink:0;vertical-align:middle;"></span>` : '';
     return `<div class="utxo-entry${hiddenClass}">
       <div class="utxo-top">${chipHtml}<span class="utxo-ada">${adaVal}</span></div>
       ${tokenRows(u.amount)}
-      <div class="utxo-addr" data-addr="${escHtml(addr)}" style="${addrStyle}">${ownDot}${escHtml(addr)}</div>
+      <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
     </div>`;
   }).join('');
   const expandBtn = needsCollapse
@@ -671,53 +672,20 @@ function renderTrades() {
   list.innerHTML = [...trades.values()].map(tx => {
     const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     const short = tx.hash.slice(0, 8) + '…' + tx.hash.slice(-6);
-    return `<div style="margin-bottom:1.25rem; padding-bottom:1.25rem; border-bottom:1px solid var(--border);">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:4px; margin-bottom:0.5rem;">
-        <div>
-          <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener"
-             style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none;">${short}</a>
-          <span style="font-size:11px; color:var(--muted); margin-left:8px;">${date}</span>
-        </div>
+    return `<div style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:4px;">
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener"
+           style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none;">${short}</a>
         <button onclick="toggleTrade('${tx.hash}')"
           style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; line-height:1;" title="Remove">✕</button>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
-        <div>
-          <div class="utxo-col-label">Inputs</div>
-          ${utxoRows(tx.inputs, tx.hash, 'inputs')}
-        </div>
-        <div>
-          <div class="utxo-col-label">Outputs</div>
-          ${utxoRows(tx.outputs, tx.hash, 'outputs')}
-        </div>
-      </div>
+      <div style="font-size:11px; color:var(--muted); margin-top:2px;">${date}</div>
     </div>`;
   }).join('');
 }
 
 document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
-});
-
-// Event delegation for trades panel expand buttons
-document.getElementById('trades-list').addEventListener('click', e => {
-  const expandBtn = e.target.closest('.utxo-expand-btn');
-  if (expandBtn) {
-    const expanded = expandBtn.dataset.expanded === 'true';
-    const hash = expandBtn.dataset.hash;
-    const side = expandBtn.dataset.side;
-    const tx   = allTxs.find(t => t.hash === hash);
-    if (!tx) return;
-    const count = side === 'inputs' ? tx.inputs.length : tx.outputs.length;
-    const list  = expandBtn.closest('.utxo-list');
-    list.querySelectorAll('.utxo-entry').forEach((el, i) => {
-      if (i >= COLLAPSE_THRESHOLD) el.classList.toggle('hidden', expanded);
-    });
-    expandBtn.dataset.expanded = !expanded;
-    expandBtn.textContent = expanded ? `Show ${count - COLLAPSE_THRESHOLD} more ▾` : `Show less ▴`;
-  }
-  const addr = e.target.closest('.utxo-addr');
-  if (addr) openPopup(addr.dataset.addr);
 });
 
 // Event delegation — catches clicks on any .utxo-addr, .trade-add-btn, .utxo-expand-btn
