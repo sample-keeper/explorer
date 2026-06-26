@@ -1,4 +1,4 @@
-<!-- v2.3 -->
+<!-- v2.4 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -694,7 +694,20 @@ function toggleTrade(hash) {
     if (tx) {
       trades.set(hash, tx);
       const dateStr = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-      portfolio.set(hash, { date: dateStr, adaDeposit: 0, adaWithdraw: 0, adaPrice: 0, tokens: [] });
+
+      // auto-fill from UTxO data
+      const { adaNet, tokenNet } = calcTxNet(tx);
+      const adaDeposit  = adaNet > 0 ? adaNet  : 0;
+      const adaWithdraw = adaNet < 0 ? -adaNet : 0;
+
+      const tokens = [...tokenNet.entries()].map(([unit, net]) => ({
+        deposit:       net > 0 ? net  : 0,
+        withdraw:      net < 0 ? -net : 0,
+        tokenPriceAda: 0,
+        unit
+      }));
+
+      portfolio.set(hash, { date: dateStr, adaDeposit, adaWithdraw, adaPrice: 0, tokens });
       renderTrades();
       rebuildPortfolioRows();
     }
@@ -709,7 +722,7 @@ function toggleTrade(hash) {
 function addToken(hash) {
   const p = portfolio.get(hash);
   if (!p) return;
-  p.tokens.push({ deposit: 0, withdraw: 0, tokenPriceAda: 0 });
+  p.tokens.push({ deposit: 0, withdraw: 0, tokenPriceAda: 0, unit: '' });
   // Append a new token row without rebuilding everything
   const container = document.querySelector(`.pt-row[data-hash="${hash}"] .pt-tokens`);
   const idx = p.tokens.length - 1;
@@ -722,16 +735,17 @@ function addToken(hash) {
 }
 
 function tokenRowHTML(hash, idx, t) {
+  const name = t.unit ? (formatAssetName(t.unit.slice(56)) || 'null') : '';
   return `<div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:6px; align-items:end; margin-top:6px;">
     <div>
-      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Deposit</div>
+      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">${name ? escHtml(name) + ' Deposit' : 'Token Deposit'}</div>
       <input type="number" min="0" step="any" value="${t.deposit || ''}" placeholder="0"
         data-hash="${hash}" data-tidx="${idx}" data-field="deposit"
         style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
                color:var(--accent); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
     </div>
     <div>
-      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Withdraw</div>
+      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">${name ? escHtml(name) + ' Withdraw' : 'Token Withdraw'}</div>
       <input type="number" min="0" step="any" value="${t.withdraw || ''}" placeholder="0"
         data-hash="${hash}" data-tidx="${idx}" data-field="withdraw"
         style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
