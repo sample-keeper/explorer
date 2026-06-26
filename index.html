@@ -1,4 +1,4 @@
-<!-- v2.0 -->
+<!-- v2.2 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -436,8 +436,14 @@ async function bf(path) {
 }
 
 async function fetchAllTxs(stake) {
-  const batch = await bf(`/accounts/${stake}/transactions?count=50&page=1&order=desc`);
-  return batch;
+  const batch = await bf(`/accounts/${stake}/transactions?count=100&page=1&order=desc`);
+  // deduplicate by tx_hash (Blockfrost can return the same tx multiple times)
+  const seen = new Set();
+  return batch.filter(t => {
+    if (seen.has(t.tx_hash)) return false;
+    seen.add(t.tx_hash);
+    return true;
+  }).slice(0, 50);
 }
 
 async function fetchAccount() {
@@ -449,10 +455,19 @@ async function fetchAccount() {
   setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
-    const [acct, txList] = await Promise.all([
+    const [acct, txList, ownAddrs] = await Promise.all([
       bf(`/accounts/${stake}`),
-      fetchAllTxs(stake)
+      fetchAllTxs(stake),
+      bf(`/accounts/${stake}/addresses?count=100`).catch(() => [])
     ]);
+
+    // auto-label own addresses
+    ownAddrs.forEach(a => {
+      if (!labels.has(a.address)) {
+        const color = CHIP_CLASSES[colorIdx++ % CHIP_CLASSES.length];
+        labels.set(a.address, { name: 'My Wallet', color });
+      }
+    });
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
