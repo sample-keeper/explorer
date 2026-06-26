@@ -1,4 +1,4 @@
-<!-- v1.9 -->
+<!-- v2.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -658,7 +658,11 @@ function exportCSV() {
 // trades: Map<hash, tx>
 const trades = new Map();
 
-// portfolio: Map<hash, { deposit: number, withdraw: number, adaPrice: number }>
+// portfolio: Map<hash, {
+//   date: string,
+//   adaDeposit: number, adaWithdraw: number, adaPrice: number,
+//   tokens: [ { deposit, withdraw, tokenPriceAda } ]
+// }>
 const portfolio = new Map();
 
 function toggleTrade(hash) {
@@ -671,7 +675,8 @@ function toggleTrade(hash) {
     const tx = allTxs.find(t => t.hash === hash);
     if (tx) {
       trades.set(hash, tx);
-      portfolio.set(hash, { deposit: 0, withdraw: 0, adaPrice: 0 });
+      const dateStr = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      portfolio.set(hash, { date: dateStr, adaDeposit: 0, adaWithdraw: 0, adaPrice: 0, tokens: [] });
       renderTrades();
       rebuildPortfolioRows();
     }
@@ -683,7 +688,50 @@ function toggleTrade(hash) {
   }
 }
 
-// Full rebuild — called only when trades are added/removed
+function addToken(hash) {
+  const p = portfolio.get(hash);
+  if (!p) return;
+  p.tokens.push({ deposit: 0, withdraw: 0, tokenPriceAda: 0 });
+  // Append a new token row without rebuilding everything
+  const container = document.querySelector(`.pt-row[data-hash="${hash}"] .pt-tokens`);
+  const idx = p.tokens.length - 1;
+  const div = document.createElement('div');
+  div.className = 'pt-token-row';
+  div.dataset.hash = hash;
+  div.dataset.tidx = idx;
+  div.innerHTML = tokenRowHTML(hash, idx, { deposit: 0, withdraw: 0, tokenPriceAda: 0 });
+  container.appendChild(div);
+}
+
+function tokenRowHTML(hash, idx, t) {
+  return `<div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:6px; align-items:end; margin-top:6px;">
+    <div>
+      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Deposit</div>
+      <input type="number" min="0" step="any" value="${t.deposit || ''}" placeholder="0"
+        data-hash="${hash}" data-tidx="${idx}" data-field="deposit"
+        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+               color:var(--accent); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
+    </div>
+    <div>
+      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Withdraw</div>
+      <input type="number" min="0" step="any" value="${t.withdraw || ''}" placeholder="0"
+        data-hash="${hash}" data-tidx="${idx}" data-field="withdraw"
+        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+               color:var(--red); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
+    </div>
+    <div>
+      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Price (ADA)</div>
+      <input type="number" min="0" step="any" value="${t.tokenPriceAda || ''}" placeholder="0.000"
+        data-hash="${hash}" data-tidx="${idx}" data-field="tokenPriceAda"
+        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+               color:var(--amber); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
+    </div>
+    <button data-remove-token data-hash="${hash}" data-tidx="${idx}"
+      style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 4px; line-height:1; align-self:center; margin-top:14px;">✕</button>
+  </div>`;
+}
+
+// Full rebuild — only on add/remove trade
 function rebuildPortfolioRows() {
   const sidebar = document.getElementById('portfolio-sidebar');
   const list    = document.getElementById('portfolio-list');
@@ -693,29 +741,33 @@ function rebuildPortfolioRows() {
   list.innerHTML = [...trades.keys()].filter(h => portfolio.has(h)).map(hash => {
     const tx    = trades.get(hash);
     const p     = portfolio.get(hash);
-    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     const short = hash.slice(0, 8) + '…' + hash.slice(-6);
     return `<div class="pt-row" data-hash="${hash}" style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-        <div>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
           <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
-             style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none;">${short}</a>
-          <span style="font-size:11px; color:var(--muted); margin-left:6px;">${date}</span>
+             style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none; flex-shrink:0;">${short}</a>
+          <input type="text" value="${escHtml(p.date)}" data-hash="${hash}" data-field="date" placeholder="Date"
+            style="flex:1; min-width:80px; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
+                   color:var(--muted); font-size:11px; padding:3px 7px; outline:none;" />
         </div>
-        <span class="pt-running" style="font-size:11px; font-family:var(--mono); font-weight:600;"></span>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+          <span class="pt-running" style="font-size:11px; font-family:var(--mono); font-weight:600;"></span>
+          <span class="pt-usd-event" style="font-size:10.5px; font-family:var(--mono); color:var(--muted); display:none;"></span>
+        </div>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
         <div>
           <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Deposit</div>
-          <input type="number" min="0" step="any" value="${p.deposit || ''}" placeholder="0"
-            data-hash="${hash}" data-field="deposit"
+          <input type="number" min="0" step="any" value="${p.adaDeposit || ''}" placeholder="0"
+            data-hash="${hash}" data-field="adaDeposit"
             style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
                    color:var(--accent); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
         </div>
         <div>
           <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Withdraw</div>
-          <input type="number" min="0" step="any" value="${p.withdraw || ''}" placeholder="0"
-            data-hash="${hash}" data-field="withdraw"
+          <input type="number" min="0" step="any" value="${p.adaWithdraw || ''}" placeholder="0"
+            data-hash="${hash}" data-field="adaWithdraw"
             style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
                    color:var(--red); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
         </div>
@@ -727,61 +779,111 @@ function rebuildPortfolioRows() {
                    color:var(--amber); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
         </div>
       </div>
+      <div class="pt-tokens">${p.tokens.map((t, i) => `<div class="pt-token-row" data-hash="${hash}" data-tidx="${i}">${tokenRowHTML(hash, i, t)}</div>`).join('')}</div>
+      <button data-add-token="${hash}"
+        style="margin-top:8px; background:none; border:1px dashed var(--border2); border-radius:6px;
+               color:var(--muted); font-size:11px; padding:4px 10px; cursor:pointer; width:100%;">+ Add token</button>
     </div>`;
   }).join('');
 
   updatePortfolioTotals();
 }
 
-// Light update — only recomputes running totals and USD, never touches inputs
+// Light update — only touches running total spans and USD spans, never inputs
 function updatePortfolioTotals() {
   const sidebar = document.getElementById('portfolio-sidebar');
   if (!portfolio.size) { sidebar.style.display = 'none'; return; }
 
-  let runDep = 0, runWith = 0, lastPrice = 0;
+  let runNet = 0, totalRunDep = 0, totalRunWith = 0;
 
   [...trades.keys()].filter(h => portfolio.has(h)).forEach(hash => {
     const p   = portfolio.get(hash);
     const row = document.querySelector(`.pt-row[data-hash="${hash}"]`);
-    runDep  += p.deposit;
-    runWith += p.withdraw;
-    if (p.adaPrice > 0) lastPrice = p.adaPrice;
-    const net = runDep - runWith;
-    const netColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+
+    // ADA net for this event
+    let eventDep  = p.adaDeposit;
+    let eventWith = p.adaWithdraw;
+
+    // Add token contributions converted to ADA
+    (p.tokens || []).forEach(t => {
+      eventDep  += t.deposit  * (t.tokenPriceAda || 0);
+      eventWith += t.withdraw * (t.tokenPriceAda || 0);
+    });
+
+    totalRunDep  += eventDep;
+    totalRunWith += eventWith;
+    runNet = totalRunDep - totalRunWith;
+
     if (row) {
-      const span = row.querySelector('.pt-running');
-      span.textContent = (net >= 0 ? '= +' : '= ') + fmt(net, 2);
-      span.style.color = netColor;
+      const runSpan = row.querySelector('.pt-running');
+      const usdSpan = row.querySelector('.pt-usd-event');
+      const netColor = runNet >= 0 ? 'var(--accent)' : 'var(--red)';
+      runSpan.textContent = (runNet >= 0 ? '= +' : '= ') + fmt(runNet, 4);
+      runSpan.style.color = netColor;
+
+      if (p.adaPrice > 0) {
+        const usd = runNet * p.adaPrice;
+        usdSpan.textContent = '$ ' + fmt(usd, 2);
+        usdSpan.style.color = netColor;
+        usdSpan.style.display = 'block';
+      } else {
+        usdSpan.style.display = 'none';
+      }
     }
   });
 
-  const totalNet = runDep - runWith;
-  document.getElementById('pt-deposited').textContent = fmt(runDep, 2);
-  document.getElementById('pt-withdrawn').textContent = fmt(runWith, 2);
+  document.getElementById('pt-deposited').textContent = fmt(totalRunDep, 4);
+  document.getElementById('pt-withdrawn').textContent = fmt(totalRunWith, 4);
   const netEl = document.getElementById('pt-net');
-  netEl.textContent = (totalNet >= 0 ? '+' : '') + fmt(totalNet, 2);
-  netEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--red)';
-
-  const usdEl = document.getElementById('pt-usd');
-  if (lastPrice > 0) {
-    usdEl.textContent = '$ ' + fmt(totalNet * lastPrice, 2);
-    usdEl.style.color = totalNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    document.getElementById('pt-usd-row').style.display = 'flex';
-  } else {
-    document.getElementById('pt-usd-row').style.display = 'none';
-  }
+  netEl.textContent = (runNet >= 0 ? '+' : '') + fmt(runNet, 4);
+  netEl.style.color = runNet >= 0 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('pt-usd-row').style.display = 'none';
 }
 
-// Single delegated listener on portfolio list — no re-renders
+// Single delegated input listener — never re-renders DOM
 document.getElementById('portfolio-list').addEventListener('input', e => {
   const input = e.target.closest('input[data-hash]');
   if (!input) return;
   const hash  = input.dataset.hash;
+  const tidx  = input.dataset.tidx;
   const field = input.dataset.field;
   const entry = portfolio.get(hash);
   if (!entry) return;
-  entry[field] = parseFloat(input.value) || 0;
+  if (tidx !== undefined) {
+    const t = entry.tokens[parseInt(tidx)];
+    if (t) t[field] = parseFloat(input.value) || 0;
+  } else {
+    if (field === 'date') entry.date = input.value;
+    else entry[field] = parseFloat(input.value) || 0;
+  }
   updatePortfolioTotals();
+});
+
+// Click delegation for add-token and remove-token buttons
+document.getElementById('portfolio-list').addEventListener('click', e => {
+  const addBtn = e.target.closest('[data-add-token]');
+  if (addBtn) { addToken(addBtn.dataset.addToken); return; }
+
+  const removeBtn = e.target.closest('[data-remove-token]');
+  if (removeBtn) {
+    const hash = removeBtn.dataset.hash;
+    const idx  = parseInt(removeBtn.dataset.tidx);
+    const p    = portfolio.get(hash);
+    if (!p) return;
+    p.tokens.splice(idx, 1);
+    // Re-index remaining token rows
+    const container = document.querySelector(`.pt-row[data-hash="${hash}"] .pt-tokens`);
+    container.querySelectorAll('.pt-token-row').forEach((row, i) => {
+      if (i === idx) { row.remove(); return; }
+    });
+    // Rebuild just the tokens section to fix indices
+    const row = document.querySelector(`.pt-row[data-hash="${hash}"]`);
+    if (row) {
+      const tokensEl = row.querySelector('.pt-tokens');
+      tokensEl.innerHTML = p.tokens.map((t, i) => `<div class="pt-token-row" data-hash="${hash}" data-tidx="${i}">${tokenRowHTML(hash, i, t)}</div>`).join('');
+    }
+    updatePortfolioTotals();
+  }
 });
 
 function renderTrades() {
