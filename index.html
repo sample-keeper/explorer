@@ -1,4 +1,4 @@
-<!-- v2.2 -->
+<!-- v2.3 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -96,7 +96,10 @@
     #status { font-size: 13px; color: var(--muted); margin-top: 0.75rem; min-height: 20px; }
     #status.error { color: var(--red); }
 
-    /* Clickable address */
+    /* Hide number input spinners */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
     .utxo-addr {
       font-family: var(--mono); font-size: 11px; color: var(--muted);
       word-break: break-all; cursor: pointer; transition: color 0.15s;
@@ -746,6 +749,70 @@ function tokenRowHTML(hash, idx, t) {
   </div>`;
 }
 
+// Compute ADA and token net for "My Wallet" addresses in a tx
+function calcTxNet(tx) {
+  const myWalletAddrs = new Set(
+    [...labels.entries()].filter(([,v]) => v.name === 'My Wallet').map(([k]) => k)
+  );
+
+  let adaIn = 0, adaOut = 0;
+  const tokensIn  = new Map(); // unit -> qty
+  const tokensOut = new Map();
+
+  (tx.inputs || []).forEach(u => {
+    if (!myWalletAddrs.has(u.address)) return;
+    (u.amount || []).forEach(a => {
+      if (a.unit === 'lovelace') adaIn += parseInt(a.quantity);
+      else tokensIn.set(a.unit, (tokensIn.get(a.unit) || 0) + parseInt(a.quantity));
+    });
+  });
+  (tx.outputs || []).forEach(u => {
+    if (!myWalletAddrs.has(u.address)) return;
+    (u.amount || []).forEach(a => {
+      if (a.unit === 'lovelace') adaOut += parseInt(a.quantity);
+      else tokensOut.set(a.unit, (tokensOut.get(a.unit) || 0) + parseInt(a.quantity));
+    });
+  });
+
+  const adaNet = (adaOut - adaIn) / 1_000_000;
+  const tokenNet = new Map();
+  const allUnits = new Set([...tokensIn.keys(), ...tokensOut.keys()]);
+  allUnits.forEach(unit => {
+    const net = (tokensOut.get(unit) || 0) - (tokensIn.get(unit) || 0);
+    if (net !== 0) tokenNet.set(unit, net);
+  });
+
+  return { adaNet, tokenNet };
+}
+
+function utxoMiniRows(list) {
+  if (!list || !list.length) return '<span style="color:var(--muted);font-size:11px;">—</span>';
+  const myWalletAddrs = new Set(
+    [...labels.entries()].filter(([,v]) => v.name === 'My Wallet').map(([k]) => k)
+  );
+  return list.map(u => {
+    const isOwn = myWalletAddrs.has(u.address);
+    const ada   = u.amount?.find(a => a.unit === 'lovelace');
+    const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000, 2) + ' ₳' : '';
+    const tokens = (u.amount || []).filter(a => a.unit !== 'lovelace');
+    const lbl = labels.get(u.address);
+    const chip = lbl ? `<span class="label-chip ${lbl.color}" style="font-size:9px;padding:1px 6px;">${escHtml(lbl.name)}</span>` : '';
+    const addrColor = isOwn ? 'var(--accent)' : 'var(--muted)';
+    const tokenStr = tokens.map(t => {
+      const name = formatAssetName(t.unit.slice(56)) || 'null';
+      return `<span style="color:var(--amber);font-size:10px;">${fmt4sig(parseInt(t.quantity))} ${escHtml(name)}</span>`;
+    }).join(' · ');
+    return `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border);">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        ${chip}
+        <span style="font-family:var(--mono);font-size:11px;color:${addrColor};">${u.address.slice(0,10)}…${u.address.slice(-6)}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text);margin-left:auto;">${adaVal}</span>
+      </div>
+      ${tokenStr ? `<div style="margin-top:2px;">${tokenStr}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 // Full rebuild — only on add/remove trade
 function rebuildPortfolioRows() {
   const sidebar = document.getElementById('portfolio-sidebar');
@@ -757,8 +824,20 @@ function rebuildPortfolioRows() {
     const tx    = trades.get(hash);
     const p     = portfolio.get(hash);
     const short = hash.slice(0, 8) + '…' + hash.slice(-6);
+    const { adaNet, tokenNet } = calcTxNet(tx);
+    const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    const adaSign  = adaNet >= 0 ? '+' : '';
+
+    const tokenRows = [...tokenNet.entries()].map(([unit, net]) => {
+      const name = formatAssetName(unit.slice(56)) || 'null';
+      const color = net >= 0 ? 'var(--accent)' : 'var(--red)';
+      const sign  = net >= 0 ? '+' : '';
+      return `<div style="font-size:11px; font-family:var(--mono); color:${color};">${sign}${fmt4sig(net)} <span style="color:var(--amber);">${escHtml(name)}</span></div>`;
+    }).join('');
+
     return `<div class="pt-row" data-hash="${hash}" style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:8px;">
+      <!-- header -->
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px;">
         <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
           <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
              style="font-family:var(--mono); font-size:11px; color:var(--blue); text-decoration:none; flex-shrink:0;">${short}</a>
@@ -771,6 +850,30 @@ function rebuildPortfolioRows() {
           <span class="pt-usd-event" style="font-size:10.5px; font-family:var(--mono); color:var(--muted); display:none;"></span>
         </div>
       </div>
+
+      <!-- auto-calculated gains/losses -->
+      <div style="background:var(--surface2); border-radius:8px; padding:8px 10px; margin-bottom:8px;">
+        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">My Wallet — gains / losses</div>
+        <div style="font-size:12px; font-family:var(--mono); color:${adaColor}; margin-bottom:2px;">${adaSign}${fmt(adaNet, 4)} ₳</div>
+        ${tokenRows}
+      </div>
+
+      <!-- UTxO mini view -->
+      <details style="margin-bottom:8px;">
+        <summary style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; cursor:pointer; user-select:none; margin-bottom:6px;">Inputs / Outputs</summary>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px;">
+          <div>
+            <div style="font-size:10px; color:var(--muted); margin-bottom:4px; text-transform:uppercase;">Inputs</div>
+            ${utxoMiniRows(tx.inputs)}
+          </div>
+          <div>
+            <div style="font-size:10px; color:var(--muted); margin-bottom:4px; text-transform:uppercase;">Outputs</div>
+            ${utxoMiniRows(tx.outputs)}
+          </div>
+        </div>
+      </details>
+
+      <!-- manual fields -->
       <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
         <div>
           <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Deposit</div>
