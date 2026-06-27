@@ -1,4 +1,4 @@
-<!-- v2.7 -->
+<!-- v2.8 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -442,6 +442,15 @@ function setStatus(msg, isErr) {
   el.className = isErr ? 'error' : '';
 }
 
+// ── Token decimals cache ───────────────────────────────────────────
+const tokenDecimals = new Map(); // unit -> decimals (number)
+
+function applyDecimals(rawQty, unit) {
+  const dec = tokenDecimals.get(unit) ?? 0;
+  if (dec === 0) return parseInt(rawQty);
+  return parseInt(rawQty) / Math.pow(10, dec);
+}
+
 // ── Blockfrost ─────────────────────────────────────────────────────
 async function bf(path) {
   const r = await fetch(BASE + path, { headers: { project_id: API_KEY } });
@@ -519,6 +528,25 @@ async function fetchAccount() {
       };
     });
 
+    // collect unique token units across all txs
+    const allUnits = new Set();
+    allTxs.forEach(tx => {
+      [...tx.inputs, ...tx.outputs].forEach(u =>
+        (u.amount || []).forEach(a => { if (a.unit !== 'lovelace') allUnits.add(a.unit); })
+      );
+    });
+
+    // fetch decimals for any units not already cached
+    const uncached = [...allUnits].filter(u => !tokenDecimals.has(u));
+    if (uncached.length) {
+      setStatus(`<span class="spinner"></span> Fetching decimals for ${uncached.length} tokens…`);
+      await Promise.all(uncached.map(unit =>
+        bf(`/assets/${unit}`)
+          .then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0))
+          .catch(() => tokenDecimals.set(unit, 0))
+      ));
+    }
+
     renderMeta(acct, txList.length);
     currentPage = 1;
     renderTable();
@@ -589,7 +617,7 @@ function tokenRows(amounts) {
   const tokens = (amounts || []).filter(a => a.unit !== 'lovelace');
   if (!tokens.length) return '';
   return tokens.map(t => {
-    const qty      = fmt4sig(parseInt(t.quantity));
+    const qty      = fmt4sig(applyDecimals(t.quantity, t.unit));
     const policyId = t.unit.slice(0, 56);
     const nameHex  = t.unit.slice(56);
     const name     = nameHex ? formatAssetName(nameHex) : 'null';
@@ -963,14 +991,14 @@ function calcTxNet(tx) {
     if (!myWalletAddrs.has(u.address)) return;
     (u.amount || []).forEach(a => {
       if (a.unit === 'lovelace') adaIn += parseInt(a.quantity);
-      else tokensIn.set(a.unit, (tokensIn.get(a.unit) || 0) + parseInt(a.quantity));
+      else tokensIn.set(a.unit, (tokensIn.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
     });
   });
   (tx.outputs || []).forEach(u => {
     if (!myWalletAddrs.has(u.address)) return;
     (u.amount || []).forEach(a => {
       if (a.unit === 'lovelace') adaOut += parseInt(a.quantity);
-      else tokensOut.set(a.unit, (tokensOut.get(a.unit) || 0) + parseInt(a.quantity));
+      else tokensOut.set(a.unit, (tokensOut.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
     });
   });
   const adaNet = (adaOut - adaIn) / 1_000_000;
@@ -997,7 +1025,7 @@ function utxoMiniRows(list) {
     const addrColor = isOwn ? 'var(--accent)' : 'var(--muted)';
     const tokenStr  = tokens.map(t => {
       const name = formatAssetName(t.unit.slice(56)) || 'null';
-      return `<span style="color:var(--amber);font-size:10px;">${fmt4sig(parseInt(t.quantity))} ${escHtml(name)}</span>`;
+      return `<span style="color:var(--amber);font-size:10px;">${fmt4sig(applyDecimals(t.quantity, t.unit))} ${escHtml(name)}</span>`;
     }).join(' · ');
     return `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border);">
       <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
