@@ -1,4 +1,4 @@
-<!-- v3.0 -->
+<!-- v3.1 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -180,8 +180,8 @@
     tr:hover td { background: rgba(255,255,255,0.02); }
 
     .col-hash    { width: 16%; }
-    .col-inputs  { width: 42%; }
-    .col-outputs { width: 42%; }
+    .col-date    { width: 13%; }
+    .col-summary { width: 71%; }
 
     .utxo-col-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
     .utxo-list { display: flex; flex-direction: column; gap: 6px; }
@@ -227,8 +227,8 @@
     }
 
     @media (max-width: 700px) {
-      .col-outputs { display: none; }
-      .col-hash { width: 28%; } .col-inputs { width: 72%; }
+      .col-date { display: none; }
+      .col-hash { width: 28%; } .col-summary { width: 72%; }
       main { padding: 1rem 1rem 3rem; }
     }
   </style>
@@ -283,7 +283,7 @@
   <div id="results">
     <div class="meta-grid" id="meta-grid"></div>
     <div class="section-header">
-      <h3 id="tx-count-label">Transactions</h3>
+      <h3 id="tx-count-label">Transaction Log</h3>
       <button class="btn btn-ghost" onclick="exportCSV()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Export CSV
@@ -340,8 +340,8 @@
             <thead>
               <tr>
                 <th class="col-hash">TX Hash</th>
-                <th class="col-inputs">Inputs</th>
-                <th class="col-outputs">Outputs</th>
+                <th class="col-date">Date</th>
+                <th class="col-summary">My Wallet Summary</th>
               </tr>
             </thead>
             <tbody id="tx-body"></tbody>
@@ -686,24 +686,44 @@ function renderTable() {
   if (!allTxs.length) return;
   const start = (currentPage - 1) * PAGE_SIZE;
   const page  = allTxs.slice(start, start + PAGE_SIZE);
-  document.getElementById('tx-body').innerHTML = page.map(tx => `
-    <tr>
-      <td class="hash-cell col-hash">
+  document.getElementById('tx-body').innerHTML = page.map(tx => {
+    const { adaNet, tokenNet } = calcTxNet(tx);
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+    const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    const adaSign  = adaNet >= 0 ? '+' : '';
+    const adaStr   = `<span style="font-family:var(--mono); font-size:12px; color:${adaColor};">${adaSign}${fmt(adaNet, 4)} ₳</span>`;
+
+    const tokenSummary = [...tokenNet.entries()].map(([unit, net]) => {
+      const name   = formatAssetName(unit.slice(56)) || 'null';
+      const url    = `https://adastat.net/tokens/${unit}`;
+      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+      const tSign  = net >= 0 ? '+' : '';
+      return `<span style="font-family:var(--mono); font-size:11px; color:${tColor}; margin-right:10px;">
+        ${tSign}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+      </span>`;
+    }).join('');
+
+    const collat = collateralDetails(tx);
+
+    return `<tr>
+      <td class="hash-cell col-hash" style="vertical-align:middle;">
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
           ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
         </a>
-        <button class="trade-add-btn${portfolio.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}" title="${portfolio.has(tx.hash) ? 'Remove from portfolio' : 'Add to portfolio'}">${portfolio.has(tx.hash) ? '✓' : '+'}</button>
+        <button class="trade-add-btn${portfolio.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}"
+          title="${portfolio.has(tx.hash) ? 'Remove from portfolio' : 'Add to portfolio'}">${portfolio.has(tx.hash) ? '✓' : '+'}</button>
       </td>
-      <td class="col-inputs">
-        <div class="utxo-col-label">Inputs</div>
-        ${utxoRows(tx.inputs, tx.hash, 'inputs')}
-        ${collateralDetails(tx)}
+      <td class="col-date" style="vertical-align:middle; font-size:12px; color:var(--muted);">${date}</td>
+      <td class="col-summary" style="vertical-align:middle;">
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+          ${adaStr}
+          ${tokenSummary}
+        </div>
+        ${collat}
       </td>
-      <td class="col-outputs">
-        <div class="utxo-col-label">Outputs</div>
-        ${utxoRows(tx.outputs, tx.hash, 'outputs')}
-      </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   renderPagination();
 }
 
