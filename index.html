@@ -1,4 +1,4 @@
-<!-- v2.6 -->
+<!-- v2.7 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -301,9 +301,20 @@
     </div>
     <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Trade</span>
-        <button id="clear-trade-btn" style="background:none; border:none; color:var(--muted); font-size:11px; cursor:pointer; padding:0;">Clear</button>
+        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Trades</span>
       </div>
+      <!-- staging area -->
+      <div id="trade-staging" style="background:var(--surface2); border-radius:8px; padding:10px; margin-bottom:10px; display:none;">
+        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade — selected txs</div>
+        <div id="staging-list"></div>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <input id="trade-name-input" type="text" placeholder="Trade name (optional)"
+            style="flex:1; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;" />
+          <button id="lock-trade-btn" class="btn" style="padding:6px 14px; font-size:12px;">Lock in</button>
+          <button id="clear-trade-btn" class="btn btn-ghost" style="padding:6px 10px; font-size:12px;">Clear</button>
+        </div>
+      </div>
+      <!-- locked trades -->
       <div id="trades-list"></div>
     </div>
     <div style="display:flex; gap:1rem; align-items:flex-start;">
@@ -741,38 +752,36 @@ function toggleTradeSelect(hash, checked) {
   renderTradesSidebar();
 }
 
-// ── Trades sidebar ─────────────────────────────────────────────────
-function renderTradesSidebar() {
-  const sidebar = document.getElementById('trades-sidebar');
-  const list    = document.getElementById('trades-list');
-  if (tradeSelected.size === 0) { sidebar.style.display = 'none'; return; }
-  sidebar.style.display = 'block';
+// ── Trades: locked trades list ─────────────────────────────────────
+// lockedTrades: [ { id, name, hashes: Set } ]
+const lockedTrades = [];
+let tradeIdCounter = 0;
 
-  // Aggregate ADA and token nets across selected txs
+function calcTradeNet(hashes) {
   let totalAdaNet = 0;
-  const tokenNets = new Map(); // unit -> net qty
-
-  [...tradeSelected].forEach(hash => {
+  const tokenNets = new Map();
+  [...hashes].forEach(hash => {
     const tx = allTxs.find(t => t.hash === hash);
     if (!tx) return;
     const { adaNet, tokenNet } = calcTxNet(tx);
     totalAdaNet += adaNet;
-    tokenNet.forEach((net, unit) => {
-      tokenNets.set(unit, (tokenNets.get(unit) || 0) + net);
-    });
+    tokenNet.forEach((net, unit) => tokenNets.set(unit, (tokenNets.get(unit) || 0) + net));
   });
+  return { totalAdaNet, tokenNets };
+}
 
-  // Cost basis: ADA spent/received is the cost for tokens received/spent
+function tradeHTML(trade) {
+  const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
   const adaColor = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
   const adaSign  = totalAdaNet >= 0 ? '+' : '';
 
-  const txRows = [...tradeSelected].map(hash => {
+  const txRows = [...trade.hashes].map(hash => {
     const tx    = allTxs.find(t => t.hash === hash);
     const date  = tx ? new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
     const short = hash.slice(0, 8) + '…' + hash.slice(-6);
     const { adaNet } = calcTxNet(tx);
     const c = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+    return `<div style="display:flex; justify-content:space-between; gap:8px; font-size:11px; margin-bottom:3px; flex-wrap:wrap;">
       <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
          style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
       <span style="color:var(--muted);">${date}</span>
@@ -785,33 +794,118 @@ function renderTradesSidebar() {
     const url  = `https://adastat.net/tokens/${unit}`;
     const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
     const tSign  = net >= 0 ? '+' : '';
-    // cost basis per token = totalAdaNet / net (negative means you paid ADA to receive tokens)
-    let costBasisStr = '';
+    let costStr = '';
     if (net !== 0 && totalAdaNet !== 0) {
-      const costPerToken = Math.abs(totalAdaNet / net);
-      costBasisStr = `<span style="color:var(--muted); font-size:10px; margin-left:6px;">${fmt(costPerToken, 6)} ₳ each</span>`;
+      costStr = `<span style="color:var(--muted); font-size:10px;">${fmt(Math.abs(totalAdaNet / net), 6)} ₳ each</span>`;
     }
-    return `<div style="display:flex; align-items:baseline; gap:4px; margin-top:4px; font-size:11px; font-family:var(--mono);">
+    return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:3px; font-size:11px; font-family:var(--mono); flex-wrap:wrap;">
       <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
       <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-      ${costBasisStr}
+      ${costStr}
     </div>`;
   }).join('');
 
-  list.innerHTML = `
-    <div style="margin-bottom:8px;">${txRows}</div>
-    <div style="border-top:1px solid var(--border); padding-top:8px;">
-      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Net ADA</div>
-      <div style="font-family:var(--mono); font-size:13px; font-weight:600; color:${adaColor}; margin-bottom:8px;">${adaSign}${fmt(totalAdaNet, 4)} ₳</div>
-      ${tokenNets.size ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Token Cost Basis</div>${tokenCostRows}` : ''}
-    </div>`;
+  return `<div class="locked-trade" data-trade-id="${trade.id}"
+    style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+      <span style="font-size:12px; font-weight:600; color:var(--text);">${escHtml(trade.name || 'Trade ' + trade.id)}</span>
+      <button data-remove-trade="${trade.id}"
+        style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0;">✕</button>
+    </div>
+    <div style="margin-bottom:6px;">${txRows}</div>
+    <div style="border-top:1px solid var(--border); padding-top:6px;">
+      <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${adaSign}${fmt(totalAdaNet, 4)} ₳</div>
+      ${tokenNets.size ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px;">Token Cost Basis</div>${tokenCostRows}` : ''}
+    </div>
+  </div>`;
 }
+
+function renderTradesSidebar() {
+  const sidebar  = document.getElementById('trades-sidebar');
+  const staging  = document.getElementById('trade-staging');
+  const stagList = document.getElementById('staging-list');
+  const list     = document.getElementById('trades-list');
+
+  const hasStaging = tradeSelected.size > 0;
+  const hasLocked  = lockedTrades.length > 0;
+
+  if (!hasStaging && !hasLocked) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+
+  // staging area
+  staging.style.display = hasStaging ? 'block' : 'none';
+  if (hasStaging) {
+    const { totalAdaNet, tokenNets } = calcTradeNet(tradeSelected);
+    const adaColor = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+
+    const txRows = [...tradeSelected].map(hash => {
+      const tx    = allTxs.find(t => t.hash === hash);
+      const date  = tx ? new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
+      const short = hash.slice(0, 8) + '…' + hash.slice(-6);
+      const { adaNet } = calcTxNet(tx);
+      const c = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+      return `<div style="display:flex; justify-content:space-between; gap:8px; font-size:11px; margin-bottom:3px; flex-wrap:wrap;">
+        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
+           style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
+        <span style="color:var(--muted);">${date}</span>
+        <span style="font-family:var(--mono); color:${c};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
+      </div>`;
+    }).join('');
+
+    const tokenCostRows = [...tokenNets.entries()].map(([unit, net]) => {
+      const name = formatAssetName(unit.slice(56)) || 'null';
+      const url  = `https://adastat.net/tokens/${unit}`;
+      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+      const tSign  = net >= 0 ? '+' : '';
+      let costStr = '';
+      if (net !== 0 && totalAdaNet !== 0) {
+        costStr = `<span style="color:var(--muted); font-size:10px;">${fmt(Math.abs(totalAdaNet / net), 6)} ₳ each</span>`;
+      }
+      return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:3px; font-size:11px; font-family:var(--mono); flex-wrap:wrap;">
+        <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
+        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+        ${costStr}
+      </div>`;
+    }).join('');
+
+    stagList.innerHTML = `
+      ${txRows}
+      <div style="border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
+        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${adaColor};">${totalAdaNet >= 0 ? '+' : ''}${fmt(totalAdaNet, 4)} ₳</div>
+        ${tokenNets.size ? `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 2px;">Token Cost Basis</div>${tokenCostRows}` : ''}
+      </div>`;
+  }
+
+  // locked trades
+  list.innerHTML = lockedTrades.map(tradeHTML).join('');
+}
+
+// Lock in current staging as a trade
+document.getElementById('lock-trade-btn').addEventListener('click', () => {
+  if (tradeSelected.size === 0) return;
+  const name = document.getElementById('trade-name-input').value.trim();
+  lockedTrades.push({ id: ++tradeIdCounter, name, hashes: new Set(tradeSelected) });
+  // clear staging
+  tradeSelected.clear();
+  document.getElementById('trade-name-input').value = '';
+  document.querySelectorAll('.pt-select-cb').forEach(cb => cb.checked = false);
+  renderTradesSidebar();
+});
 
 document.getElementById('clear-trade-btn').addEventListener('click', () => {
   tradeSelected.clear();
-  // uncheck all checkboxes
   document.querySelectorAll('.pt-select-cb').forEach(cb => cb.checked = false);
   renderTradesSidebar();
+});
+
+document.getElementById('trades-list').addEventListener('click', e => {
+  const removeBtn = e.target.closest('[data-remove-trade]');
+  if (removeBtn) {
+    const id = parseInt(removeBtn.dataset.removeTrade);
+    const idx = lockedTrades.findIndex(t => t.id === id);
+    if (idx !== -1) lockedTrades.splice(idx, 1);
+    renderTradesSidebar();
+  }
 });
 
 function addToken(hash) {
