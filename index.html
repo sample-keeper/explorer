@@ -1,4 +1,4 @@
-<!-- v2.8 -->
+<!-- v2.9 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -316,6 +316,7 @@
       </div>
       <!-- locked trades -->
       <div id="trades-list"></div>
+      <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
     </div>
     <div style="display:flex; gap:1rem; align-items:flex-start;">
       <div style="display:flex; flex-direction:column; gap:1rem; flex-shrink:0; width:220px;">
@@ -906,6 +907,37 @@ function renderTradesSidebar() {
 
   // locked trades
   list.innerHTML = lockedTrades.map(tradeHTML).join('');
+
+  // totals across all locked trades
+  const totalsEl = document.getElementById('trades-totals');
+  if (lockedTrades.length === 0) { totalsEl.style.display = 'none'; return; }
+
+  let grandAdaNet = 0;
+  const grandTokenNets = new Map();
+  lockedTrades.forEach(trade => {
+    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
+    grandAdaNet += totalAdaNet;
+    tokenNets.forEach((net, unit) => grandTokenNets.set(unit, (grandTokenNets.get(unit) || 0) + net));
+  });
+
+  const adaColor = grandAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+  const tokenTotalRows = [...grandTokenNets.entries()].map(([unit, net]) => {
+    const name   = formatAssetName(unit.slice(56)) || 'null';
+    const url    = `https://adastat.net/tokens/${unit}`;
+    const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+    const tSign  = net >= 0 ? '+' : '';
+    return `<div style="display:flex; align-items:baseline; gap:6px; font-size:11px; font-family:var(--mono); flex-wrap:wrap; margin-top:3px;">
+      <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
+      <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+    </div>`;
+  }).join('');
+
+  totalsEl.style.display = 'block';
+  totalsEl.innerHTML = `
+    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total across all trades</div>
+    <div style="font-family:var(--mono); font-size:13px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${grandAdaNet >= 0 ? '+' : ''}${fmt(grandAdaNet, 4)} ₳</div>
+    ${grandTokenNets.size ? tokenTotalRows : ''}
+  `;
 }
 
 // Lock in current staging as a trade
