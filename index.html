@@ -1,4 +1,4 @@
-<!-- v2.9 -->
+<!-- v3.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -307,9 +307,18 @@
       <div id="trade-staging" style="background:var(--surface2); border-radius:8px; padding:10px; margin-bottom:10px; display:none;">
         <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade — selected txs</div>
         <div id="staging-list"></div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
+        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
           <input id="trade-name-input" type="text" placeholder="Trade name (optional)"
-            style="flex:1; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;" />
+            style="flex:1; min-width:120px; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;" />
+          <select id="trade-type-select"
+            style="background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none; cursor:pointer;">
+            <option value="trade">Token trade</option>
+            <option value="bought_ada">Bought ADA with USD</option>
+            <option value="interest">Interest earned</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px;">
           <button id="lock-trade-btn" class="btn" style="padding:6px 14px; font-size:12px;">Lock in</button>
           <button id="clear-trade-btn" class="btn btn-ghost" style="padding:6px 10px; font-size:12px;">Clear</button>
         </div>
@@ -799,10 +808,18 @@ function calcTradeNet(hashes) {
   return { totalAdaNet, tokenNets };
 }
 
+const TRADE_TYPE_META = {
+  trade:      { label: 'Token trade',        color: 'var(--blue)',   bg: 'rgba(96,165,250,0.12)' },
+  bought_ada: { label: 'Bought ADA with USD', color: 'var(--accent)', bg: 'var(--accent-dim)'     },
+  interest:   { label: 'Interest earned',     color: 'var(--amber)', bg: 'var(--amber-dim)'      },
+  other:      { label: 'Other',               color: 'var(--muted)', bg: 'var(--surface2)'       },
+};
+
 function tradeHTML(trade) {
   const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
   const adaColor = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
   const adaSign  = totalAdaNet >= 0 ? '+' : '';
+  const typeMeta = TRADE_TYPE_META[trade.type] || TRADE_TYPE_META.other;
 
   const txRows = [...trade.hashes].map(hash => {
     const tx    = allTxs.find(t => t.hash === hash);
@@ -834,17 +851,31 @@ function tradeHTML(trade) {
     </div>`;
   }).join('');
 
+  // type-specific summary line
+  let typeSummary = '';
+  if (trade.type === 'bought_ada') {
+    typeSummary = `<div style="font-size:11px; color:var(--muted); margin-top:4px;">ADA received: <span style="color:var(--accent); font-family:var(--mono);">+${fmt(totalAdaNet, 4)} ₳</span></div>`;
+  } else if (trade.type === 'interest') {
+    typeSummary = `<div style="font-size:11px; color:var(--muted); margin-top:4px;">Interest earned: <span style="color:var(--accent); font-family:var(--mono);">+${fmt(Math.abs(totalAdaNet), 4)} ₳</span>${tokenNets.size ? ' + tokens' : ''}</div>`;
+  }
+
   return `<div class="locked-trade" data-trade-id="${trade.id}"
     style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-      <span style="font-size:12px; font-weight:600; color:var(--text);">${escHtml(trade.name || 'Trade ' + trade.id)}</span>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:6px;">
+      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        <span style="font-size:12px; font-weight:600; color:var(--text);">${escHtml(trade.name || 'Trade ' + trade.id)}</span>
+        <span style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:99px;
+                     background:${typeMeta.bg}; color:${typeMeta.color};">${typeMeta.label}</span>
+      </div>
       <button data-remove-trade="${trade.id}"
-        style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0;">✕</button>
+        style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; flex-shrink:0;">✕</button>
     </div>
     <div style="margin-bottom:6px;">${txRows}</div>
     <div style="border-top:1px solid var(--border); padding-top:6px;">
       <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${adaSign}${fmt(totalAdaNet, 4)} ₳</div>
-      ${tokenNets.size ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px;">Token Cost Basis</div>${tokenCostRows}` : ''}
+      ${typeSummary}
+      ${tokenNets.size && trade.type === 'trade' ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px; margin-top:4px;">Token Cost Basis</div>${tokenCostRows}` : ''}
+      ${tokenNets.size && trade.type !== 'trade' ? tokenCostRows : ''}
     </div>
   </div>`;
 }
@@ -920,6 +951,33 @@ function renderTradesSidebar() {
     tokenNets.forEach((net, unit) => grandTokenNets.set(unit, (grandTokenNets.get(unit) || 0) + net));
   });
 
+  totalsEl.style.display = 'block';
+
+  // break down by type
+  const byType = {};
+  lockedTrades.forEach(trade => {
+    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
+    const type = trade.type || 'other';
+    if (!byType[type]) byType[type] = { adaNet: 0, tokenNets: new Map() };
+    byType[type].adaNet += totalAdaNet;
+    tokenNets.forEach((net, unit) => byType[type].tokenNets.set(unit, (byType[type].tokenNets.get(unit) || 0) + net));
+  });
+
+  const typeBreakdown = Object.entries(byType).map(([type, data]) => {
+    const meta   = TRADE_TYPE_META[type] || TRADE_TYPE_META.other;
+    const c      = data.adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    const tokens = [...data.tokenNets.entries()].map(([unit, net]) => {
+      const name   = formatAssetName(unit.slice(56)) || 'null';
+      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
+      return `<span style="font-family:var(--mono); font-size:10px; color:${tColor}; margin-left:6px;">${net >= 0 ? '+' : ''}${fmt4sig(net)} <span style="color:var(--amber);">${escHtml(name)}</span></span>`;
+    }).join('');
+    return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:5px; flex-wrap:wrap;">
+      <span style="font-size:10px; font-weight:600; padding:1px 6px; border-radius:99px; background:${meta.bg}; color:${meta.color}; white-space:nowrap;">${meta.label}</span>
+      <span style="font-family:var(--mono); font-size:11px; color:${c};">${data.adaNet >= 0 ? '+' : ''}${fmt(data.adaNet, 4)} ₳</span>
+      ${tokens}
+    </div>`;
+  }).join('');
+
   const adaColor = grandAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
   const tokenTotalRows = [...grandTokenNets.entries()].map(([unit, net]) => {
     const name   = formatAssetName(unit.slice(56)) || 'null';
@@ -932,11 +990,14 @@ function renderTradesSidebar() {
     </div>`;
   }).join('');
 
-  totalsEl.style.display = 'block';
   totalsEl.innerHTML = `
     <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total across all trades</div>
     <div style="font-family:var(--mono); font-size:13px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${grandAdaNet >= 0 ? '+' : ''}${fmt(grandAdaNet, 4)} ₳</div>
     ${grandTokenNets.size ? tokenTotalRows : ''}
+    <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
+      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">By type</div>
+      ${typeBreakdown}
+    </div>
   `;
 }
 
@@ -944,10 +1005,11 @@ function renderTradesSidebar() {
 document.getElementById('lock-trade-btn').addEventListener('click', () => {
   if (tradeSelected.size === 0) return;
   const name = document.getElementById('trade-name-input').value.trim();
-  lockedTrades.push({ id: ++tradeIdCounter, name, hashes: new Set(tradeSelected) });
-  // clear staging
+  const type = document.getElementById('trade-type-select').value;
+  lockedTrades.push({ id: ++tradeIdCounter, name, type, hashes: new Set(tradeSelected) });
   tradeSelected.clear();
   document.getElementById('trade-name-input').value = '';
+  document.getElementById('trade-type-select').value = 'trade';
   document.querySelectorAll('.pt-select-cb').forEach(cb => cb.checked = false);
   renderTradesSidebar();
 });
