@@ -1,4 +1,4 @@
-<!-- v3.9 -->
+<!-- v4.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -335,16 +335,6 @@
         Export CSV
       </button>
     </div>
-    <div id="portfolio-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
-      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Portfolio Tracker</div>
-      <div id="portfolio-list"></div>
-      <div id="portfolio-total" style="margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border); font-size:13px; display:flex; flex-direction:column; gap:6px;">
-        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Total deposited</span><span id="pt-deposited" style="font-family:var(--mono); color:var(--accent);">0</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Total withdrawn</span><span id="pt-withdrawn" style="font-family:var(--mono); color:var(--red);">0</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Net</span><span id="pt-net" style="font-family:var(--mono); font-weight:600;">0</span></div>
-        <div id="pt-usd-row" style="display:none; justify-content:space-between;"><span style="color:var(--muted);">Value in USD</span><span id="pt-usd" style="font-family:var(--mono); font-weight:600;"></span></div>
-      </div>
-    </div>
     <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
         <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Trades</span>
@@ -378,13 +368,11 @@
       <div id="token-pnl-list"></div>
       <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
     </div>
+    <div id="labels-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
+      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
+      <div id="labels-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+    </div>
     <div id="tx-log-row" style="display:flex; gap:1rem; align-items:flex-start;">
-      <div style="display:flex; flex-direction:column; gap:1rem; flex-shrink:0; width:220px;">
-        <div id="labels-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
-          <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
-          <div id="labels-list"></div>
-        </div>
-      </div>
       <div style="flex:1; min-width:0;">
         <div class="table-wrap">
           <table>
@@ -453,16 +441,13 @@ function renderLabels() {
   const list    = document.getElementById('labels-list');
   if (labels.size === 0) { sidebar.style.display = 'none'; return; }
   sidebar.style.display = 'block';
-  list.innerHTML = [...labels.entries()].map(([addr, lbl]) => `
-    <div style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
-      <div style="margin-bottom:4px;">
-        <span class="label-chip ${lbl.color}" style="cursor:pointer" data-addr="${escHtml(addr)}">${escHtml(lbl.name)}</span>
-      </div>
-      <div style="font-family:var(--mono); font-size:10px; color:var(--muted); word-break:break-all;">${escHtml(addr)}</div>
+  list.innerHTML = [...labels.entries()].map(([addr, lbl]) =>
+    `<div style="display:inline-flex; align-items:center; gap:6px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:4px 10px; cursor:pointer;" data-addr="${escHtml(addr)}">
+      <span class="label-chip ${lbl.color}" style="cursor:pointer;">${escHtml(lbl.name)}</span>
+      <span style="font-family:var(--mono); font-size:10px; color:var(--muted); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(addr)}">${addr.slice(0,10)}…${addr.slice(-6)}</span>
     </div>`
   ).join('');
-  // clicking a chip in the sidebar opens the popup too
-  list.querySelectorAll('.label-chip').forEach(el => {
+  list.querySelectorAll('[data-addr]').forEach(el => {
     el.addEventListener('click', () => openPopup(el.dataset.addr));
   });
 }
@@ -773,7 +758,7 @@ function renderTable() {
         </a>
         <button class="trade-add-btn" data-pnl-hash="${tx.hash}" title="Add to Token P&L">+</button>
         <button class="trade-add-btn${portfolio.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}"
-          title="${portfolio.has(tx.hash) ? 'Remove from portfolio' : 'Add to portfolio'}"
+          title="${portfolio.has(tx.hash) ? 'Remove from starred' : 'Star transaction'}"
           style="font-size:10px; margin-left:2px;">${portfolio.has(tx.hash) ? '★' : '☆'}</button>
       </td>
       <td class="col-date" style="vertical-align:middle; font-size:12px; color:var(--muted);">${date}</td>
@@ -1201,47 +1186,17 @@ function togglePnlToken(unit) {
   if (body) body.classList.toggle('open');
 }
 
-// portfolio: Map<hash, { date, adaDeposit, adaWithdraw, adaPrice, tokens[] }>
-// trades = Set of hashes selected from portfolio for cost basis
-const portfolio    = new Map();
-const tradeSelected = new Set(); // hashes selected in portfolio for the trade sidebar
+// ── Starred txs (☆ button) — lightweight set for future use ────────
+const portfolio = new Set(); // just tracks starred hashes
 
-// ── Portfolio: add/remove tx ───────────────────────────────────────
 function togglePortfolio(hash) {
-  if (portfolio.has(hash)) {
-    portfolio.delete(hash);
-    tradeSelected.delete(hash);
-  } else {
-    const tx = allTxs.find(t => t.hash === hash);
-    if (!tx) return;
-    const dateStr = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    const { adaNet, tokenNet } = calcTxNet(tx);
-    portfolio.set(hash, {
-      date:        dateStr,
-      adaDeposit:  adaNet > 0 ? adaNet  : 0,
-      adaWithdraw: adaNet < 0 ? -adaNet : 0,
-      adaPrice:    0,
-      tokens: [...tokenNet.entries()].map(([unit, net]) => ({
-        unit,
-        deposit:       net > 0 ? net  : 0,
-        withdraw:      net < 0 ? -net : 0,
-        tokenPriceAda: 0
-      }))
-    });
-  }
-  // sync the checkbox in the portfolio row (if visible)
-  const cb = document.querySelector(`.pt-select-cb[data-hash="${hash}"]`);
-  if (cb) cb.checked = tradeSelected.has(hash);
-  rebuildPortfolioRows();
-  renderTradesSidebar();
+  if (portfolio.has(hash)) portfolio.delete(hash);
+  else portfolio.add(hash);
+  // update button in table
+  renderTable();
 }
 
-// ── Portfolio: trade checkbox ──────────────────────────────────────
-function toggleTradeSelect(hash, checked) {
-  if (checked) tradeSelected.add(hash);
-  else tradeSelected.delete(hash);
-  renderTradesSidebar();
-}
+function renderTrades() {} // no-op
 
 // ── Trades: locked trades list ─────────────────────────────────────
 // lockedTrades: [ { id, name, hashes: Set } ]
@@ -1482,49 +1437,6 @@ document.getElementById('trades-list').addEventListener('click', e => {
     renderTradesSidebar();
   }
 });
-
-function addToken(hash) {
-  const p = portfolio.get(hash);
-  if (!p) return;
-  p.tokens.push({ deposit: 0, withdraw: 0, tokenPriceAda: 0, unit: '' });
-  const container = document.querySelector(`.pt-row[data-hash="${hash}"] .pt-tokens`);
-  const idx = p.tokens.length - 1;
-  const div = document.createElement('div');
-  div.className = 'pt-token-row';
-  div.dataset.hash = hash;
-  div.dataset.tidx = idx;
-  div.innerHTML = tokenRowHTML(hash, idx, { deposit: 0, withdraw: 0, tokenPriceAda: 0, unit: '' });
-  container.appendChild(div);
-}
-
-function tokenRowHTML(hash, idx, t) {
-  const name = t.unit ? (formatAssetName(t.unit.slice(56)) || 'null') : '';
-  return `<div style="display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:6px; align-items:end; margin-top:6px;">
-    <div>
-      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">${name ? escHtml(name) + ' Deposit' : 'Token Deposit'}</div>
-      <input type="number" min="0" step="any" value="${t.deposit || ''}" placeholder="0"
-        data-hash="${hash}" data-tidx="${idx}" data-field="deposit"
-        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
-               color:var(--accent); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
-    </div>
-    <div>
-      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">${name ? escHtml(name) + ' Withdraw' : 'Token Withdraw'}</div>
-      <input type="number" min="0" step="any" value="${t.withdraw || ''}" placeholder="0"
-        data-hash="${hash}" data-tidx="${idx}" data-field="withdraw"
-        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
-               color:var(--red); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
-    </div>
-    <div>
-      <div style="font-size:10px; color:var(--muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em;">Token Price (ADA)</div>
-      <input type="number" min="0" step="any" value="${t.tokenPriceAda || ''}" placeholder="0.000"
-        data-hash="${hash}" data-tidx="${idx}" data-field="tokenPriceAda"
-        style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:6px;
-               color:var(--amber); font-family:var(--mono); font-size:12px; padding:5px 8px; outline:none;" />
-    </div>
-    <button data-remove-token data-hash="${hash}" data-tidx="${idx}"
-      style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px; padding:0 4px; line-height:1; align-self:center; margin-top:14px;">✕</button>
-  </div>`;
-}
 
 // ── calcTxNet ──────────────────────────────────────────────────────
 function calcTxNet(tx) {
