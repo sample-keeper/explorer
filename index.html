@@ -1,4 +1,4 @@
-<!-- v3.4 -->
+<!-- v3.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -372,6 +372,16 @@
       <!-- locked trades -->
       <div id="trades-list"></div>
       <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
+    </div>
+    <div id="pnl-staging-panel" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Selected for P&amp;L</span>
+        <div style="display:flex; gap:6px;">
+          <button id="pnl-assign-btn" class="btn" style="padding:5px 12px; font-size:12px;">Assign to token →</button>
+          <button id="pnl-clear-btn" class="btn btn-ghost" style="padding:5px 10px; font-size:12px;">Clear</button>
+        </div>
+      </div>
+      <div id="pnl-staging-list" style="display:flex; flex-direction:column; gap:4px;"></div>
     </div>
     <div id="token-pnl-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
       <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Token P&amp;L</div>
@@ -822,47 +832,104 @@ function exportCSV() {
   a.click();
 }
 
-// ── P&L popup ──────────────────────────────────────────────────────
-let pnlPopupHash     = null;
-let pnlPopupUnit     = null;
-let pnlPopupRole     = 'buy';
+// ── P&L staging list ──────────────────────────────────────────────
+const pnlStaged = new Set(); // hashes staged for assignment
 
-function openPnlPopup(hash) {
-  pnlPopupHash = hash;
+function togglePnlStaged(hash) {
+  if (pnlStaged.has(hash)) pnlStaged.delete(hash);
+  else pnlStaged.add(hash);
+  renderPnlStaging();
+  // update button state in tx table
+  const btn = document.querySelector(`[data-pnl-hash="${hash}"]`);
+  if (btn) {
+    btn.textContent = pnlStaged.has(hash) ? '✓' : '+';
+    btn.classList.toggle('active', pnlStaged.has(hash));
+  }
+}
+
+function renderPnlStaging() {
+  const panel   = document.getElementById('pnl-staging-panel');
+  const listEl  = document.getElementById('pnl-staging-list');
+  if (pnlStaged.size === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  listEl.innerHTML = [...pnlStaged].map(hash => {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return '';
+    const { adaNet } = calcTxNet(tx);
+    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const short = hash.slice(0,10) + '…' + hash.slice(-6);
+    const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--border); font-size:11px;">
+      <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
+         style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
+      <span style="color:var(--muted);">${date}</span>
+      <span style="font-family:var(--mono); color:${c}; margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('[data-unstage]').forEach(btn => {
+    btn.addEventListener('click', () => togglePnlStaged(btn.dataset.unstage));
+  });
+}
+
+document.getElementById('pnl-clear-btn').addEventListener('click', () => {
+  [...pnlStaged].forEach(hash => {
+    const btn = document.querySelector(`[data-pnl-hash="${hash}"]`);
+    if (btn) { btn.textContent = '+'; btn.classList.remove('active'); }
+  });
+  pnlStaged.clear();
+  renderPnlStaging();
+});
+
+document.getElementById('pnl-assign-btn').addEventListener('click', () => {
+  if (pnlStaged.size === 0) return;
+  openPnlPopup();
+});
+
+// ── P&L batch assign popup ─────────────────────────────────────────
+let pnlPopupUnit = null;
+let pnlPopupRole = 'buy';
+
+function openPnlPopup() {
   pnlPopupUnit = null;
   pnlPopupRole = 'buy';
 
-  const tx = allTxs.find(t => t.hash === hash);
-  if (!tx) return;
+  // fill tx list
+  const txListEl = document.getElementById('pnl-popup-txlist');
+  txListEl.innerHTML = [...pnlStaged].map(hash => {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return '';
+    const { adaNet } = calcTxNet(tx);
+    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const short = hash.slice(0,10) + '…' + hash.slice(-6);
+    const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div style="display:flex; gap:8px; font-size:11px; padding:3px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;">
+      <span style="font-family:var(--mono); color:var(--blue);">${short}</span>
+      <span style="color:var(--muted);">${date}</span>
+      <span style="font-family:var(--mono); color:${c}; margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+    </div>`;
+  }).join('');
 
-  const { adaNet, tokenNet } = calcTxNet(tx);
-  const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-  const short = hash.slice(0, 10) + '…' + hash.slice(-6);
-  const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-
-  document.getElementById('pnl-popup-tx').innerHTML =
-    `${short} &nbsp;<span style="color:var(--muted);">${date}</span> &nbsp;<span style="font-family:var(--mono); color:${adaColor};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>`;
-
-  // build token list: all tokens in pnlTokenTxs + any tokens in this tx
+  // fill token list
   const allUnitsForPopup = new Set([...pnlTokenTxs.keys()]);
-  tokenNet.forEach((_, unit) => allUnitsForPopup.add(unit));
+  allTxs.forEach(tx => {
+    const { tokenNet } = calcTxNet(tx);
+    tokenNet.forEach((_, unit) => allUnitsForPopup.add(unit));
+  });
 
   const tokensEl = document.getElementById('pnl-popup-tokens');
   if (allUnitsForPopup.size === 0) {
-    tokensEl.innerHTML = `<div style="font-size:12px; color:var(--muted); font-style:italic;">No tokens found. Search a wallet first.</div>`;
+    tokensEl.innerHTML = `<div style="font-size:12px; color:var(--muted); font-style:italic;">No tokens found in transaction history.</div>`;
   } else {
     tokensEl.innerHTML = [...allUnitsForPopup].map(unit => {
-      const name    = formatAssetName(unit.slice(56)) || 'null';
-      const tNet    = tokenNet.get(unit);
-      const tStr    = tNet !== undefined ? ` <span style="font-family:var(--mono); font-size:10px; color:${tNet>=0?'var(--accent)':'var(--red)'};">${tNet>=0?'+':''}${fmt4sig(tNet)}</span>` : '';
-      const alreadyAssigned = pnlTokenTxs.get(unit)?.has(hash);
-      const role    = alreadyAssigned ? (pnlRoles.get(unit)?.get(hash) || 'none') : '';
-      const roleTag = role && role !== 'none' ? ` <span style="font-size:10px; color:var(--muted);">[${role}]</span>` : '';
+      const name = formatAssetName(unit.slice(56)) || 'null';
       return `<div class="pnl-token-option" data-unit="${unit}"
           style="padding:6px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px;
                  border:1px solid var(--border); background:var(--surface2);">
         <span style="color:var(--amber); font-size:12px; font-weight:600;">${escHtml(name)}</span>
-        ${tStr}${roleTag}
+        <span style="font-size:10px; color:var(--muted); font-family:var(--mono);">${unit.slice(0,12)}…</span>
       </div>`;
     }).join('');
 
@@ -875,49 +942,44 @@ function openPnlPopup(hash) {
     });
   }
 
-  // role button states
   updatePnlRoleBtns();
   document.getElementById('pnl-popup').style.display = 'flex';
 }
 
 function updatePnlRoleBtns() {
-  const buyBtn  = document.getElementById('pnl-popup-buy');
-  const sellBtn = document.getElementById('pnl-popup-sell');
-  buyBtn.style.opacity  = pnlPopupRole === 'buy'  ? '1' : '0.4';
-  sellBtn.style.opacity = pnlPopupRole === 'sell' ? '1' : '0.4';
+  document.getElementById('pnl-popup-buy').style.opacity  = pnlPopupRole === 'buy'  ? '1' : '0.4';
+  document.getElementById('pnl-popup-sell').style.opacity = pnlPopupRole === 'sell' ? '1' : '0.4';
 }
 
-document.getElementById('pnl-popup-buy').addEventListener('click', () => {
-  pnlPopupRole = 'buy'; updatePnlRoleBtns();
-});
-document.getElementById('pnl-popup-sell').addEventListener('click', () => {
-  pnlPopupRole = 'sell'; updatePnlRoleBtns();
-});
+document.getElementById('pnl-popup-buy').addEventListener('click',  () => { pnlPopupRole = 'buy';  updatePnlRoleBtns(); });
+document.getElementById('pnl-popup-sell').addEventListener('click', () => { pnlPopupRole = 'sell'; updatePnlRoleBtns(); });
 
 document.getElementById('pnl-popup-confirm').addEventListener('click', () => {
-  if (!pnlPopupUnit || !pnlPopupHash) { alert('Please select a token first.'); return; }
-  const tx = allTxs.find(t => t.hash === pnlPopupHash);
-  if (!tx) return;
-  const { adaNet, tokenNet } = calcTxNet(tx);
-  const tNet = tokenNet.get(pnlPopupUnit) || 0;
-  const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  if (!pnlPopupUnit) { alert('Please select a token.'); return; }
 
   if (!pnlTokenTxs.has(pnlPopupUnit)) pnlTokenTxs.set(pnlPopupUnit, new Map());
   if (!pnlRoles.has(pnlPopupUnit))    pnlRoles.set(pnlPopupUnit, new Map());
 
-  pnlTokenTxs.get(pnlPopupUnit).set(pnlPopupHash, { hash: pnlPopupHash, date, tokenNet: tNet, adaNet });
-  pnlRoles.get(pnlPopupUnit).set(pnlPopupHash, pnlPopupRole);
+  [...pnlStaged].forEach(hash => {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return;
+    const { adaNet, tokenNet } = calcTxNet(tx);
+    const tNet = tokenNet.get(pnlPopupUnit) || 0;
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    pnlTokenTxs.get(pnlPopupUnit).set(hash, { hash, date, tokenNet: tNet, adaNet });
+    pnlRoles.get(pnlPopupUnit).set(hash, pnlPopupRole);
+  });
 
   closePnlPopup();
   renderTokenPnl();
-  // open that token's section
+  // open that token section
   const body = document.getElementById(`pnl-body-${pnlPopupUnit.slice(0,16)}`);
   if (body) body.classList.add('open');
 });
 
 function closePnlPopup() {
   document.getElementById('pnl-popup').style.display = 'none';
-  pnlPopupHash = null; pnlPopupUnit = null;
+  pnlPopupUnit = null;
 }
 
 document.getElementById('pnl-popup').addEventListener('click', e => {
@@ -925,7 +987,11 @@ document.getElementById('pnl-popup').addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closePnlPopup();
+  if (e.key === 'Escape') {
+    closePnlPopup();
+    // also close label popup
+    document.getElementById('popup-overlay').classList.remove('open');
+  }
 });
 // pnlRoles:   Map<unit, Map<hash, 'buy'|'sell'|'none'>>
 // pnlTokenTxs: Map<unit, Map<hash, { hash, date, tokenNet, adaNet }>>
@@ -953,58 +1019,6 @@ function buildTokenPnl() {
     });
   });
 
-  renderTokenPnl();
-}
-
-function addTxToPnl(unit) {
-  // show a small prompt listing all txs not already in this token's list
-  const existing = pnlTokenTxs.get(unit) || new Map();
-  const available = allTxs.filter(tx => !existing.has(tx.hash));
-  if (!available.length) { alert('All transactions are already added to this token.'); return; }
-
-  // Build a quick picker popup reusing the existing popup overlay
-  const addrEl = document.getElementById('popup-addr');
-  const inputEl = document.getElementById('popup-input');
-  const overlay = document.getElementById('popup-overlay');
-
-  // Temporarily hijack the popup for tx picking
-  addrEl.innerHTML = `<strong style="color:var(--text);">Add transaction to ${escHtml(formatAssetName(unit.slice(56)) || 'null')}</strong>
-    <div style="margin-top:6px; max-height:220px; overflow-y:auto;">
-      ${available.map(tx => {
-        const { adaNet } = calcTxNet(tx);
-        const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-        const short = tx.hash.slice(0,10) + '…' + tx.hash.slice(-6);
-        const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-        return `<div style="display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); cursor:pointer;"
-                  onclick="confirmAddTxToPnl('${unit}','${tx.hash}')">
-          <span style="font-family:var(--mono); font-size:11px; color:var(--blue);">${short}</span>
-          <span style="font-size:11px; color:var(--muted);">${date}</span>
-          <span style="font-family:var(--mono); font-size:11px; color:${c}; margin-left:auto;">${adaNet >= 0 ? '+' : ''}${fmt(adaNet,4)} ₳</span>
-        </div>`;
-      }).join('')}
-    </div>`;
-  inputEl.style.display = 'none';
-  overlay.classList.add('open');
-  // store unit for confirmAddTxToPnl
-  overlay.dataset.pnlUnit = unit;
-}
-
-function confirmAddTxToPnl(unit, hash) {
-  const tx = allTxs.find(t => t.hash === hash);
-  if (!tx) return;
-  if (!pnlTokenTxs.has(unit)) pnlTokenTxs.set(unit, new Map());
-  if (!pnlRoles.has(unit))    pnlRoles.set(unit, new Map());
-  // get the token net for this unit specifically (may be 0 if tx doesn't touch this token)
-  const { adaNet, tokenNet } = calcTxNet(tx);
-  const tNet = tokenNet.get(unit) || 0;
-  const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-  pnlTokenTxs.get(unit).set(hash, { hash, date, tokenNet: tNet, adaNet });
-  // close popup and restore it
-  const overlay  = document.getElementById('popup-overlay');
-  const inputEl  = document.getElementById('popup-input');
-  overlay.classList.remove('open');
-  inputEl.style.display = '';
-  delete overlay.dataset.pnlUnit;
   renderTokenPnl();
 }
 
@@ -1725,7 +1739,7 @@ document.getElementById('tx-body').addEventListener('click', e => {
   if (addr) { openPopup(addr.dataset.addr); return; }
 
   const pnlBtn = e.target.closest('[data-pnl-hash]');
-  if (pnlBtn) { openPnlPopup(pnlBtn.dataset.pnlHash); return; }
+  if (pnlBtn) { togglePnlStaged(pnlBtn.dataset.pnlHash); return; }
 
   const portfolioBtn = e.target.closest('[data-hash].trade-add-btn');
   if (portfolioBtn) { togglePortfolio(portfolioBtn.dataset.hash); return; }
