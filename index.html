@@ -1,4 +1,4 @@
-<!-- v4.6 -->
+<!-- v4.7 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -393,11 +393,25 @@ async function fetchAccount() {
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
-    // Fetch full tx details and UTxO data for all transactions in parallel
-    const [details, utxos] = await Promise.all([
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null))),
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null))),
-    ]);
+    // Fetch in chunks of 10 with a small delay between batches to avoid
+    // hitting Blockfrost's rate limit (429 Too Many Requests)
+    const CHUNK_SIZE  = 10;
+    const CHUNK_DELAY = 200; // ms between batches
+
+    async function fetchChunked(items, fetcher) {
+      const results = [];
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        if (i > 0) await new Promise(r => setTimeout(r, CHUNK_DELAY));
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const batch = await Promise.all(chunk.map(fetcher));
+        results.push(...batch);
+        setStatus(`<span class="spinner"></span> Fetching UTxOs… ${Math.min(i + CHUNK_SIZE, items.length)} / ${items.length}`);
+      }
+      return results;
+    }
+
+    const details = await fetchChunked(txList, t => bf(`/txs/${t.tx_hash}`).catch(() => null));
+    const utxos   = await fetchChunked(txList, t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null));
 
     // Build the allTxs array, separating spending inputs/outputs from
     // collateral inputs (smart contract insurance) and reference inputs (read-only data)
