@@ -1,262 +1,112 @@
-<!-- v4.3 -->
+<!-- v4.4 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Cardano TX Explorer</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg: #0b0f1a;
-      --surface: #131929;
-      --surface2: #1a2236;
-      --border: rgba(255,255,255,0.07);
-      --border2: rgba(255,255,255,0.13);
-      --text: #e8eaf0;
-      --muted: #7b859e;
-      --accent: #0cd9a0;
-      --accent-dim: rgba(12,217,160,0.12);
-      --red: #f87171;
-      --red-dim: rgba(248,113,113,0.12);
-      --amber: #fbbf24;
-      --amber-dim: rgba(251,191,36,0.12);
-      --blue: #60a5fa;
-      --mono: 'JetBrains Mono', 'Fira Mono', monospace;
+      --bg: #0b0f1a; --surface: #131929; --surface2: #1a2236;
+      --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+      --text: #e8eaf0; --muted: #7b859e;
+      --accent: #0cd9a0; --accent-dim: rgba(12,217,160,0.12);
+      --red: #f87171; --red-dim: rgba(248,113,113,0.12);
+      --amber: #fbbf24; --amber-dim: rgba(251,191,36,0.12);
+      --blue: #60a5fa; --mono: 'JetBrains Mono','Fira Mono',monospace;
     }
+    body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:15px; line-height:1.6; min-height:100vh; }
+    header { border-bottom:1px solid var(--border); padding:0 2rem; height:56px; display:flex; align-items:center; gap:10px; }
+    header .logo { width:28px; height:28px; background:var(--accent); border-radius:6px; display:flex; align-items:center; justify-content:center; }
+    header .logo svg { width:16px; height:16px; }
+    header h1 { font-size:15px; font-weight:600; }
+    header span { font-size:13px; color:var(--muted); margin-left:4px; }
+    main { max-width:1100px; margin:0 auto; padding:2rem 1.5rem 4rem; }
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 15px;
-      line-height: 1.6;
-      min-height: 100vh;
-    }
+    /* Cards / Panels */
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem; }
+    .card-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem; }
+    .search-card { border-radius:14px; padding:1.5rem; }
+    .search-card h2 { font-size:14px; font-weight:500; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:1rem; }
+    .field { margin-bottom:0.75rem; }
+    .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
+    .field input { width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; padding:10px 14px; outline:none; transition:border-color 0.15s; }
+    .field input:focus { border-color:var(--accent); }
+    .field input::placeholder { color:var(--muted); }
 
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 0 2rem;
-      height: 56px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    header .logo {
-      width: 28px; height: 28px;
-      background: var(--accent);
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-    }
-    header .logo svg { width: 16px; height: 16px; }
-    header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-    header span { font-size: 13px; color: var(--muted); margin-left: 4px; }
+    /* Buttons */
+    .btn { display:inline-flex; align-items:center; gap:6px; background:var(--accent); color:#051510; font-size:14px; font-weight:600; border:none; border-radius:8px; padding:10px 20px; cursor:pointer; transition:opacity 0.15s; flex-shrink:0; }
+    .btn:hover { opacity:0.85; } .btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border2); font-weight:500; }
+    .btn-ghost:hover { color:var(--text); opacity:1; background:var(--surface2); }
+    .btn-sm { padding:5px 12px; font-size:12px; }
 
-    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    #status { font-size:13px; color:var(--muted); margin-top:0.75rem; min-height:20px; }
+    #status.error { color:var(--red); }
+    #results { display:none; }
 
-    .search-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-    .search-card h2 {
-      font-size: 14px; font-weight: 500; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 1rem;
-    }
-    .field { margin-bottom: 0.75rem; }
-    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-    .field input {
-      width: 100%; background: var(--bg); border: 1px solid var(--border2);
-      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit;
-      padding: 10px 14px; outline: none; transition: border-color 0.15s;
-    }
-    .field input:focus { border-color: var(--accent); }
-    .field input::placeholder { color: var(--muted); }
-    .search-row { display: flex; gap: 10px; margin-top: 1rem; }
+    /* Meta grid */
+    .meta-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:1.5rem; }
+    .metric { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+    .metric-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+    .metric-value { font-size:20px; font-weight:600; letter-spacing:-0.02em; }
+    .metric-value.ada::after { content:' ₳'; font-size:14px; font-weight:400; color:var(--muted); }
 
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: var(--accent); color: #051510;
-      font-size: 14px; font-weight: 600; border: none;
-      border-radius: 8px; padding: 10px 20px;
-      cursor: pointer; transition: opacity 0.15s; flex-shrink: 0;
-    }
-    .btn:hover { opacity: 0.85; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ghost {
-      background: transparent; color: var(--muted);
-      border: 1px solid var(--border2); font-weight: 500;
-    }
-    .btn-ghost:hover { color: var(--text); opacity: 1; background: var(--surface2); }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; }
+    .section-header h3 { font-size:14px; font-weight:500; color:var(--muted); }
 
-    #status { font-size: 13px; color: var(--muted); margin-top: 0.75rem; min-height: 20px; }
-    #status.error { color: var(--red); }
+    /* Table */
+    .table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+    thead { background:var(--surface2); }
+    th { padding:10px 14px; text-align:left; font-size:11px; font-weight:500; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid var(--border); }
+    td { padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tr:last-child td { border-bottom:none; }
+    tr:hover td { background:rgba(255,255,255,0.02); }
+    .col-hash { width:16%; } .col-date { width:13%; } .col-summary { width:71%; }
+    .hash-cell { font-family:var(--mono); font-size:11px; }
+    .hash-cell a { color:var(--blue); text-decoration:none; }
+    .hash-cell a:hover { text-decoration:underline; }
 
-    /* Hide number input spinners */
-    input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    input[type=number] { -moz-appearance: textfield; }
-    .utxo-addr {
-      font-family: var(--mono); font-size: 11px; color: var(--muted);
-      word-break: break-all; cursor: pointer; transition: color 0.15s;
-    }
-    .utxo-addr:hover { color: var(--accent); text-decoration: underline; }
+    /* UTxO rows */
+    .utxo-list { display:flex; flex-direction:column; gap:6px; }
+    .utxo-entry { display:flex; flex-direction:column; gap:2px; }
+    .utxo-entry.hidden { display:none; }
+    .utxo-top { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .utxo-ada { font-family:var(--mono); font-size:12px; color:var(--text); white-space:nowrap; flex-shrink:0; }
+    .utxo-addr { font-family:var(--mono); font-size:11px; color:var(--muted); word-break:break-all; }
+    .utxo-expand-btn { margin-top:4px; background:none; border:none; padding:0; font-size:11px; color:var(--accent); cursor:pointer; text-align:left; }
+    .utxo-expand-btn:hover { text-decoration:underline; }
 
-    .label-chip {
-      display: inline-flex; align-items: center; gap: 4px;
-      background: var(--accent-dim); color: var(--accent);
-      font-size: 11px; font-weight: 600; padding: 2px 8px;
-      border-radius: 99px; white-space: nowrap; cursor: default;
-    }
-    .label-chip.yellow { background: var(--amber-dim); color: var(--amber); }
-    .label-chip.blue   { background: rgba(96,165,250,0.12); color: var(--blue); }
-    .label-chip.red    { background: var(--red-dim); color: var(--red); }
-
-    /* Token P&L */
+    /* P&L */
     .pnl-token-row { margin-bottom:0.5rem; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
-    .pnl-token-header {
-      display:flex; align-items:center; gap:8px; padding:8px 12px;
-      background:var(--surface2); cursor:pointer; user-select:none; flex-wrap:wrap;
-    }
+    .pnl-token-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface2); cursor:pointer; user-select:none; flex-wrap:wrap; }
     .pnl-token-header:hover { background:rgba(255,255,255,0.04); }
     .pnl-token-name { font-size:12px; font-weight:600; color:var(--amber); flex:1; min-width:80px; }
     .pnl-stat { font-size:11px; font-family:var(--mono); }
     .pnl-token-body { display:none; padding:8px 12px; }
     .pnl-token-body.open { display:block; }
-    .pnl-tx-row {
-      display:grid; grid-template-columns:auto 1fr auto auto auto auto;
-      gap:8px; align-items:center; padding:5px 0;
-      border-bottom:1px solid var(--border); font-size:11px;
-    }
+    .pnl-tx-row { display:grid; grid-template-columns:auto 1fr auto auto auto auto; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--border); font-size:11px; }
     .pnl-tx-row:last-child { border-bottom:none; }
-    .pnl-role-select {
-      background:var(--bg); border:1px solid var(--border2); border-radius:4px;
-      color:var(--text); font-size:11px; padding:2px 5px; outline:none; cursor:pointer;
-    }
-    .pnl-summary-box {
-      margin-top:8px; padding:8px 10px; background:var(--surface2); border-radius:8px;
-      display:flex; flex-direction:column; gap:4px;
-    }
+    .pnl-role-select { background:var(--bg); border:1px solid var(--border2); border-radius:4px; color:var(--text); font-size:11px; padding:2px 5px; outline:none; cursor:pointer; }
+    .pnl-summary-box { margin-top:8px; padding:8px 10px; background:var(--surface2); border-radius:8px; }
+    .pnl-tx-link { font-family:var(--mono); color:var(--blue); text-decoration:underline; font-size:10.5px; cursor:pointer; }
 
-    /* Popup */
-    .popup-overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.6); z-index: 100;
-      align-items: center; justify-content: center;
-    }
-    .popup-overlay.open { display: flex; }
-    .popup {
-      background: var(--surface); border: 1px solid var(--border2);
-      border-radius: 14px; padding: 1.5rem; width: 480px; max-width: 94vw;
-    }
-    .popup h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-    .popup .popup-addr {
-      font-family: var(--mono); font-size: 10.5px; color: var(--muted);
-      word-break: break-all; margin-bottom: 1rem; line-height: 1.5;
-    }
-    .popup input {
-      width: 100%; background: var(--bg); border: 1px solid var(--border2);
-      border-radius: 8px; color: var(--text); font-size: 14px;
-      padding: 10px 14px; outline: none; margin-bottom: 1rem;
-      transition: border-color 0.15s;
-    }
-    .popup input:focus { border-color: var(--accent); }
-    .popup-btns { display: flex; gap: 8px; justify-content: flex-end; }
-    .popup-remove {
-      margin-right: auto; background: transparent; color: var(--red);
-      border: 1px solid var(--red-dim); font-size: 13px; font-weight: 500;
-      border-radius: 8px; padding: 8px 14px; cursor: pointer;
-    }
-    .popup-remove:hover { background: var(--red-dim); }
+    /* Trades */
+    .trade-add-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; margin-left:6px; background:var(--surface2); border:1px solid var(--border2); border-radius:4px; color:var(--muted); font-size:13px; line-height:1; cursor:pointer; vertical-align:middle; transition:all 0.15s; flex-shrink:0; }
+    .trade-add-btn:hover { border-color:var(--accent); color:var(--accent); }
+    .trade-add-btn.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
 
-    /* Meta */
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px; margin-bottom: 1.5rem;
-    }
-    .metric {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; padding: 14px 16px;
-    }
-    .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-    .metric-value { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
-    .metric-value.ada::after { content: ' ₳'; font-size: 14px; font-weight: 400; color: var(--muted); }
-
-    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
-    .section-header h3 { font-size: 14px; font-weight: 500; color: var(--muted); }
-
-    .table-wrap {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; overflow: hidden;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-    thead { background: var(--surface2); }
-    th {
-      padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 500;
-      color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
-      border-bottom: 1px solid var(--border);
-    }
-    td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,0.02); }
-
-    .col-hash    { width: 16%; }
-    .col-date    { width: 13%; }
-    .col-summary { width: 71%; }
-
-    .utxo-col-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
-    .utxo-list { display: flex; flex-direction: column; gap: 6px; }
-    .utxo-entry { display: flex; flex-direction: column; gap: 2px; }
-    .utxo-entry.hidden { display: none; }
-    .utxo-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .utxo-ada { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; flex-shrink: 0; }
-    .utxo-expand-btn {
-      margin-top: 4px; background: none; border: none; padding: 0;
-      font-size: 11px; color: var(--accent); cursor: pointer; text-align: left;
-    }
-    .utxo-expand-btn:hover { text-decoration: underline; }
-
-    .hash-cell { font-family: var(--mono); font-size: 11px; }
-    .hash-cell a { color: var(--blue); text-decoration: none; }
-    .hash-cell a:hover { text-decoration: underline; }
-
-    .trade-add-btn {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 18px; height: 18px; margin-left: 6px;
-      background: var(--surface2); border: 1px solid var(--border2);
-      border-radius: 4px; color: var(--muted); font-size: 13px; line-height: 1;
-      cursor: pointer; vertical-align: middle; transition: all 0.15s; flex-shrink: 0;
-    }
-    .trade-add-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .trade-add-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-
-    .pagination { display: flex; align-items: center; gap: 10px; margin-top: 1rem; justify-content: center; }
-    .pagination span { font-size: 13px; color: var(--muted); }
-
-    .spinner {
-      display: inline-block; width: 14px; height: 14px;
-      border: 2px solid var(--border2); border-top-color: var(--accent);
-      border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    #results { display: none; }
-
-    footer {
-      text-align: center; padding: 2rem; font-size: 12px;
-      color: var(--muted); border-top: 1px solid var(--border); margin-top: 3rem;
-    }
-
-    @media (max-width: 700px) {
-      .col-date { display: none; }
-      .col-hash { width: 28%; } .col-summary { width: 72%; }
-      main { padding: 1rem 1rem 3rem; }
-    }
+    /* Misc */
+    .pagination { display:flex; align-items:center; gap:10px; margin-top:1rem; justify-content:center; }
+    .pagination span { font-size:13px; color:var(--muted); }
+    .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:-2px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+    input[type=number] { -moz-appearance:textfield; }
+    footer { text-align:center; padding:2rem; font-size:12px; color:var(--muted); border-top:1px solid var(--border); margin-top:3rem; }
+    @media (max-width:700px) { .col-date { display:none; } .col-hash { width:28%; } .col-summary { width:72%; } main { padding:1rem 1rem 3rem; } }
   </style>
 </head>
 <body>
@@ -278,7 +128,7 @@
   <!-- P&L batch assign popup -->
   <div id="pnl-popup" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:101; align-items:center; justify-content:center;">
     <div style="background:var(--surface); border:1px solid var(--border2); border-radius:14px; padding:1.5rem; width:460px; max-width:94vw; max-height:90vh; overflow-y:auto;">
-      <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Assign transactions to Token P&L</h3>
+      <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Assign to Token P&L</h3>
       <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Selected transactions:</div>
       <div id="pnl-popup-txlist" style="margin-bottom:12px; display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
       <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Select a token:</div>
@@ -295,26 +145,12 @@
     </div>
   </div>
 
-  <!-- Label popup -->
-  <div class="popup-overlay" id="popup-overlay" onclick="closePopup(event)">
-    <div class="popup">
-      <h3>Label address</h3>
-      <div class="popup-addr" id="popup-addr"></div>
-      <input id="popup-input" type="text" placeholder="Enter a label…" />
-      <div class="popup-btns">
-        <button class="popup-remove" id="popup-remove" onclick="removeLabel()">Remove label</button>
-        <button class="btn btn-ghost" onclick="closePopup()">Cancel</button>
-        <button class="btn" onclick="saveLabel()">Save</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Search -->
-  <div class="search-card">
+  <div class="card search-card">
     <h2>Lookup</h2>
     <div class="field">
       <label>Stake address</label>
-      <input id="stake" type="text" placeholder="stake1u..." />
+      <input id="stake" type="text" placeholder="stake1u..."/>
     </div>
     <div class="search-row">
       <button class="btn" id="search-btn" onclick="fetchAccount()">
@@ -328,26 +164,23 @@
   <!-- Results -->
   <div id="results">
     <div class="meta-grid" id="meta-grid"></div>
-    <div class="section-header">
-      <h3 id="tx-count-label">Transaction Log</h3>
-      <button class="btn btn-ghost" onclick="exportCSV()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export CSV
-      </button>
+
+    <!-- Token P&L -->
+    <div id="token-pnl-sidebar" class="card" style="display:none;">
+      <div class="card-title">Token P&L</div>
+      <div id="token-pnl-list"></div>
+      <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
     </div>
-    <div id="trades-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Trades</span>
-      </div>
-      <!-- staging area -->
+
+    <!-- Trades -->
+    <div id="trades-sidebar" class="card" style="display:none;">
+      <div class="card-title">Trades</div>
       <div id="trade-staging" style="background:var(--surface2); border-radius:8px; padding:10px; margin-bottom:10px; display:none;">
-        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade — selected txs</div>
+        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade</div>
         <div id="staging-list"></div>
         <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-          <input id="trade-name-input" type="text" placeholder="Trade name (optional)"
-            style="flex:1; min-width:120px; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;" />
-          <select id="trade-type-select"
-            style="background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none; cursor:pointer;">
+          <input id="trade-name-input" type="text" placeholder="Trade name (optional)" style="flex:1; min-width:120px; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;"/>
+          <select id="trade-type-select" style="background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none; cursor:pointer;">
             <option value="trade">Token trade</option>
             <option value="bought_ada">Bought ADA with USD</option>
             <option value="interest">Interest earned</option>
@@ -355,22 +188,21 @@
           </select>
         </div>
         <div style="display:flex; gap:6px; margin-top:6px;">
-          <button id="lock-trade-btn" class="btn" style="padding:6px 14px; font-size:12px;">Lock in</button>
-          <button id="clear-trade-btn" class="btn btn-ghost" style="padding:6px 10px; font-size:12px;">Clear</button>
+          <button id="lock-trade-btn" class="btn btn-sm">Lock in</button>
+          <button id="clear-trade-btn" class="btn btn-ghost btn-sm">Clear</button>
         </div>
       </div>
-      <!-- locked trades -->
       <div id="trades-list"></div>
       <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
     </div>
-    <div id="token-pnl-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
-      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Token P&amp;L</div>
-      <div id="token-pnl-list"></div>
-      <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
-    </div>
-    <div id="labels-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
-      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
-      <div id="labels-list" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+
+    <!-- Transaction Log -->
+    <div class="section-header">
+      <h3 id="tx-count-label">Transaction Log</h3>
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </button>
     </div>
     <div id="tx-log-row" style="display:flex; gap:1rem; align-items:flex-start;">
       <div style="flex:1; min-width:0;">
@@ -387,10 +219,11 @@
           </table>
         </div>
       </div>
+      <!-- P&L staging panel -->
       <div id="pnl-staging-panel" style="display:none; flex-shrink:0; width:220px; position:sticky; top:1rem; align-self:flex-start; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; gap:4px;">
-          <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">P&amp;L Selection</span>
-          <button id="pnl-clear-btn" class="btn btn-ghost" style="padding:3px 8px; font-size:11px;">Clear</button>
+          <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">P&L Selection</span>
+          <button id="pnl-clear-btn" class="btn btn-ghost btn-sm">Clear</button>
         </div>
         <div id="pnl-staging-list" style="display:flex; flex-direction:column; gap:4px; margin-bottom:0.75rem;"></div>
         <button id="pnl-assign-btn" class="btn" style="width:100%; padding:7px; font-size:12px;">Assign to token →</button>
@@ -411,194 +244,86 @@ const API_KEY = 'mainnettuskMeFpliyx52DukVDywVSJ9e5kUCqb';
 let allTxs      = [];
 let currentPage = 1;
 const PAGE_SIZE = 25;
+const COLLAPSE_THRESHOLD = 5;
 
-// labels: Map<address, { name, color }>
-const labels = new Map();
-const CHIP_CLASSES = ['', 'yellow', 'blue', 'red'];
-let colorIdx = 0;
+// own addresses fetched from stake key
+let myAddresses = new Set();
 
-let popupAddr = null;
+// token decimals cache
+const tokenDecimals = new Map();
 
-// ── Popup ──────────────────────────────────────────────────────────
-function openPopup(addr) {
-  popupAddr = addr;
-  document.getElementById('popup-addr').textContent = addr;
-  const existing = labels.get(addr);
-  document.getElementById('popup-input').value = existing ? existing.name : '';
-  document.getElementById('popup-remove').style.display = existing ? 'block' : 'none';
-  document.getElementById('popup-overlay').classList.add('open');
-  setTimeout(() => document.getElementById('popup-input').focus(), 50);
-}
-
-function closePopup(e) {
-  if (e && e.target !== document.getElementById('popup-overlay')) return;
-  document.getElementById('popup-overlay').classList.remove('open');
-  popupAddr = null;
-}
-
-function renderLabels() {
-  const sidebar = document.getElementById('labels-sidebar');
-  const list    = document.getElementById('labels-list');
-  if (labels.size === 0) { sidebar.style.display = 'none'; return; }
-  sidebar.style.display = 'block';
-  list.innerHTML = [...labels.entries()].map(([addr, lbl]) =>
-    `<div style="display:inline-flex; align-items:center; gap:6px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:4px 10px; cursor:pointer;" data-addr="${escHtml(addr)}">
-      <span class="label-chip ${lbl.color}" style="cursor:pointer;">${escHtml(lbl.name)}</span>
-      <span style="font-family:var(--mono); font-size:10px; color:var(--muted); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(addr)}">${addr.slice(0,10)}…${addr.slice(-6)}</span>
-    </div>`
-  ).join('');
-  list.querySelectorAll('[data-addr]').forEach(el => {
-    el.addEventListener('click', () => openPopup(el.dataset.addr));
-  });
-}
-
-function saveLabel() {
-  const name = document.getElementById('popup-input').value.trim();
-  if (!popupAddr) return;
-  if (name) {
-    const existing = labels.get(popupAddr);
-    const color = existing ? existing.color : CHIP_CLASSES[colorIdx++ % CHIP_CLASSES.length];
-    labels.set(popupAddr, { name, color });
-  } else {
-    labels.delete(popupAddr);
-  }
-  document.getElementById('popup-overlay').classList.remove('open');
-  popupAddr = null;
-  renderTable();
-  renderLabels();
-}
-
-function removeLabel() {
-  if (popupAddr) labels.delete(popupAddr);
-  document.getElementById('popup-overlay').classList.remove('open');
-  popupAddr = null;
-  renderTable();
-  renderLabels();
-}
-
-// Enter key saves
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { document.getElementById('popup-overlay').classList.remove('open'); popupAddr = null; }
-  if (e.key === 'Enter' && document.getElementById('popup-overlay').classList.contains('open')) saveLabel();
-});
-
-// ── Utilities ──────────────────────────────────────────────────────
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+// ── Helpers ────────────────────────────────────────────────────────
 function lovelace(l) { return parseInt(l || 0) / 1_000_000; }
-function fmt(n, dec = 2) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+function fmt(n, dec = 2) { return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+function fmt4sig(n) {
+  if (n === 0) return '0';
+  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
+  for (const [div, sfx] of [[1e12,'t'],[1e9,'b'],[1e6,'m'],[1e3,'k'],[1,'']]) {
+    if (abs >= div) return sign + parseFloat((abs/div).toPrecision(4)).toString() + sfx;
+  }
+  return String(n);
 }
-function setStatus(msg, isErr) {
-  const el = document.getElementById('status');
-  el.innerHTML = msg;
-  el.className = isErr ? 'error' : '';
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function applyDecimals(qty, unit) { const d = tokenDecimals.get(unit) ?? 0; return parseInt(qty) / Math.pow(10, d); }
+function formatAssetName(hex) {
+  try { const s = hex.match(/.{1,2}/g).map(b=>parseInt(b,16)); const str = String.fromCharCode(...s); if (/^[\x20-\x7E]+$/.test(str)) return str; } catch {}
+  return 'null';
 }
-
-// ── Token decimals cache ───────────────────────────────────────────
-const tokenDecimals = new Map(); // unit -> decimals (number)
-
-function applyDecimals(rawQty, unit) {
-  const dec = tokenDecimals.get(unit) ?? 0;
-  if (dec === 0) return parseInt(rawQty);
-  return parseInt(rawQty) / Math.pow(10, dec);
-}
+function setStatus(msg, isErr) { const el = document.getElementById('status'); el.innerHTML = msg; el.className = isErr ? 'error' : ''; }
 
 // ── Blockfrost ─────────────────────────────────────────────────────
 async function bf(path) {
   const r = await fetch(BASE + path, { headers: { project_id: API_KEY } });
-  if (!r.ok) {
-    const j = await r.json().catch(() => ({}));
-    throw new Error(j.message || `HTTP ${r.status}`);
-  }
+  if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.message || `HTTP ${r.status}`); }
   return r.json();
-}
-
-async function fetchAllTxs(stake) {
-  const batch = await bf(`/accounts/${stake}/transactions?count=100&page=1&order=desc`);
-  // deduplicate by tx_hash (Blockfrost can return the same tx multiple times)
-  const seen = new Set();
-  return batch.filter(t => {
-    if (seen.has(t.tx_hash)) return false;
-    seen.add(t.tx_hash);
-    return true;
-  }).slice(0, 50);
 }
 
 async function fetchAccount() {
   const stake = document.getElementById('stake').value.trim();
   if (!stake) return setStatus('Enter a stake address.', true);
-
   document.getElementById('results').style.display = 'none';
   document.getElementById('search-btn').disabled = true;
   setStatus('<span class="spinner"></span> Fetching account…');
-
   try {
-    const [acct, txList, ownAddrs] = await Promise.all([
+    const [acct, rawTxs, ownAddrs] = await Promise.all([
       bf(`/accounts/${stake}`),
-      fetchAllTxs(stake),
-      bf(`/accounts/${stake}/addresses?count=100`).catch(() => [])
+      bf(`/accounts/${stake}/transactions?count=100&page=1&order=desc`),
+      bf(`/accounts/${stake}/addresses?count=100`).catch(()=>[])
     ]);
+    myAddresses = new Set(ownAddrs.map(a => a.address));
 
-    // auto-label own addresses
-    ownAddrs.forEach(a => {
-      if (!labels.has(a.address)) {
-        const color = CHIP_CLASSES[colorIdx++ % CHIP_CLASSES.length];
-        labels.set(a.address, { name: 'My Wallet', color });
-      }
-    });
+    // deduplicate
+    const seen = new Set();
+    const txList = rawTxs.filter(t => { if (seen.has(t.tx_hash)) return false; seen.add(t.tx_hash); return true; }).slice(0, 50);
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
-
-    const chunks = [];
-    for (let i = 0; i < txList.length; i += 10) chunks.push(txList.slice(i, i + 10));
-
-    const details = [];
-    for (const chunk of chunks) {
-      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null)));
-      details.push(...res);
-    }
-
-    const utxos = [];
-    for (const chunk of chunks) {
-      const res = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
-      utxos.push(...res);
-    }
+    const [details, utxos] = await Promise.all([
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(()=>null))),
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(()=>null)))
+    ]);
 
     allTxs = txList.map((t, i) => {
-      const d = details[i];
       const u = utxos[i];
       return {
         hash:              t.tx_hash,
         time:              t.block_time,
         block:             t.block_height,
-        fees:              d?.fees || 0,
+        fees:              details[i]?.fees || 0,
         inputs:            u ? u.inputs.filter(x => !x.collateral && !x.reference) : [],
         outputs:           u ? u.outputs.filter(x => !x.collateral) : [],
-        collateralInputs:  u ? u.inputs.filter(x => x.collateral)   : [],
-        referenceInputs:   u ? u.inputs.filter(x => x.reference)    : [],
-        collateralOutputs: u ? u.outputs.filter(x => x.collateral)  : [],
+        collateralInputs:  u ? u.inputs.filter(x => x.collateral)  : [],
+        referenceInputs:   u ? u.inputs.filter(x => x.reference)   : [],
+        collateralOutputs: u ? u.outputs.filter(x => x.collateral) : [],
       };
     });
 
-    // collect unique token units across all txs
+    // fetch token decimals
     const allUnits = new Set();
-    allTxs.forEach(tx => {
-      [...tx.inputs, ...tx.outputs].forEach(u =>
-        (u.amount || []).forEach(a => { if (a.unit !== 'lovelace') allUnits.add(a.unit); })
-      );
-    });
-
-    // fetch decimals for any units not already cached
+    allTxs.forEach(tx => [...tx.inputs, ...tx.outputs].forEach(u => (u.amount||[]).forEach(a => { if (a.unit!=='lovelace') allUnits.add(a.unit); })));
     const uncached = [...allUnits].filter(u => !tokenDecimals.has(u));
     if (uncached.length) {
       setStatus(`<span class="spinner"></span> Fetching decimals for ${uncached.length} tokens…`);
-      await Promise.all(uncached.map(unit =>
-        bf(`/assets/${unit}`)
-          .then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0))
-          .catch(() => tokenDecimals.set(unit, 0))
-      ));
+      await Promise.all(uncached.map(unit => bf(`/assets/${unit}`).then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0)).catch(() => tokenDecimals.set(unit, 0))));
     }
 
     renderMeta(acct, txList.length);
@@ -607,188 +332,126 @@ async function fetchAccount() {
     buildTokenPnl();
     setStatus('');
     document.getElementById('results').style.display = 'block';
-
-  } catch (e) {
+  } catch(e) {
     setStatus('Error: ' + e.message, true);
   } finally {
     document.getElementById('search-btn').disabled = false;
   }
 }
 
-// ── Render ─────────────────────────────────────────────────────────
+// ── Meta ───────────────────────────────────────────────────────────
 function renderMeta(acct, count) {
-  const pool = acct.pool_id ? acct.pool_id.slice(0, 12) + '…' : 'Not delegating';
-  const cards = [
-    { label: 'Controlled ADA',       value: fmt(lovelace(acct.controlled_amount)),   ada: true  },
-    { label: 'Rewards available',    value: fmt(lovelace(acct.withdrawable_amount)), ada: true  },
-    { label: 'Total rewards earned', value: fmt(lovelace(acct.rewards_sum)),         ada: true  },
-    { label: 'Total deposits',       value: fmt(lovelace(acct.deposits_sum)),        ada: true  },
-    { label: 'Transactions',         value: count.toLocaleString(),                  ada: false },
-    { label: 'Stake pool',           value: pool,                                    ada: false },
-  ];
-  document.getElementById('meta-grid').innerHTML = cards.map(c =>
-    `<div class="metric">
-      <div class="metric-label">${c.label}</div>
-      <div class="metric-value${c.ada ? ' ada' : ''}">${c.value}</div>
-    </div>`
-  ).join('');
+  const pool = acct.pool_id ? acct.pool_id.slice(0,12)+'…' : 'Not delegating';
+  document.getElementById('meta-grid').innerHTML = [
+    { label:'Controlled ADA',       value:fmt(lovelace(acct.controlled_amount)),   ada:true  },
+    { label:'Rewards available',    value:fmt(lovelace(acct.withdrawable_amount)), ada:true  },
+    { label:'Total rewards earned', value:fmt(lovelace(acct.rewards_sum)),         ada:true  },
+    { label:'Transactions',         value:count.toLocaleString(),                  ada:false },
+    { label:'Stake pool',           value:pool,                                    ada:false },
+  ].map(c => `<div class="metric"><div class="metric-label">${c.label}</div><div class="metric-value${c.ada?' ada':''}">${c.value}</div></div>`).join('');
   document.getElementById('tx-count-label').textContent = `${count.toLocaleString()} transactions`;
 }
 
-const COLLAPSE_THRESHOLD = 5;
-
-function formatAssetName(hex) {
-  try {
-    const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b, 16));
-    const str = String.fromCharCode(...bytes);
-    if (/^[\x20-\x7E]+$/.test(str)) return str;
-  } catch {}
-  return 'null';
+// ── calcTxNet ──────────────────────────────────────────────────────
+function calcTxNet(tx) {
+  let adaIn = 0, adaOut = 0;
+  const tokensIn = new Map(), tokensOut = new Map();
+  (tx.inputs||[]).forEach(u => {
+    if (!myAddresses.has(u.address)) return;
+    (u.amount||[]).forEach(a => { if (a.unit==='lovelace') adaIn+=parseInt(a.quantity); else tokensIn.set(a.unit,(tokensIn.get(a.unit)||0)+applyDecimals(a.quantity,a.unit)); });
+  });
+  (tx.outputs||[]).forEach(u => {
+    if (!myAddresses.has(u.address)) return;
+    (u.amount||[]).forEach(a => { if (a.unit==='lovelace') adaOut+=parseInt(a.quantity); else tokensOut.set(a.unit,(tokensOut.get(a.unit)||0)+applyDecimals(a.quantity,a.unit)); });
+  });
+  const adaNet = (adaOut - adaIn) / 1_000_000;
+  const tokenNet = new Map();
+  new Set([...tokensIn.keys(),...tokensOut.keys()]).forEach(u => { const n=(tokensOut.get(u)||0)-(tokensIn.get(u)||0); if (n!==0) tokenNet.set(u,n); });
+  return { adaNet, tokenNet };
 }
 
-function fmt4sig(n) {
-  if (n === 0) return '0';
-  const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  const tiers = [
-    [1e12, 't'],
-    [1e9,  'b'],
-    [1e6,  'm'],
-    [1e3,  'k'],
-    [1,    '' ],
-  ];
-  for (const [div, suffix] of tiers) {
-    if (abs >= div) {
-      const val = abs / div;
-      // 4 significant figures, strip trailing zeros
-      const str = parseFloat(val.toPrecision(4)).toString();
-      return sign + str + suffix;
-    }
-  }
-  return String(n);
-}
-
-function tokenRows(amounts) {
-  const tokens = (amounts || []).filter(a => a.unit !== 'lovelace');
-  if (!tokens.length) return '';
-  return tokens.map(t => {
-    const qty      = fmt4sig(applyDecimals(t.quantity, t.unit));
-    const policyId = t.unit.slice(0, 56);
-    const nameHex  = t.unit.slice(56);
-    const name     = nameHex ? formatAssetName(nameHex) : 'null';
-    const url      = `https://adastat.net/tokens/${t.unit}`;
+// ── UTxO rendering ─────────────────────────────────────────────────
+function tokenAmounts(amounts) {
+  return (amounts||[]).filter(a=>a.unit!=='lovelace').map(t => {
+    const qty = fmt4sig(applyDecimals(t.quantity, t.unit));
+    const name = formatAssetName(t.unit.slice(56)) || 'null';
+    const url = `https://adastat.net/tokens/${t.unit}`;
     return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px; word-break:break-all;">
       ${qty} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-      <span style="color:var(--muted); font-size:9.5px; display:block;">${policyId}</span>
+      <span style="color:var(--muted); font-size:9.5px; display:block;">${t.unit.slice(0,56)}</span>
     </div>`;
   }).join('');
 }
 
 function utxoRows(list, txHash, side) {
-  if (!list || list.length === 0) return '<span style="color:var(--muted);font-size:12px">—</span>';
+  if (!list || !list.length) return '<span style="color:var(--muted);font-size:12px">—</span>';
   const needsCollapse = list.length > COLLAPSE_THRESHOLD;
   const rows = list.map((u, i) => {
-    const addr   = u.address || '';
-    const ada    = u.amount?.find(a => a.unit === 'lovelace');
-    const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000) + ' ₳' : '—';
-    const lbl    = labels.get(addr);
-    const chipHtml = lbl ? `<span class="label-chip ${lbl.color}">${escHtml(lbl.name)}</span> ` : '';
-    const hiddenClass = needsCollapse && i >= COLLAPSE_THRESHOLD ? ' hidden' : '';
-    return `<div class="utxo-entry${hiddenClass}">
-      <div class="utxo-top">${chipHtml}<span class="utxo-ada">${adaVal}</span></div>
-      ${tokenRows(u.amount)}
-      <div style="display:flex; align-items:center; gap:4px;">
-        <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
-        <button class="label-star-btn" data-addr="${escHtml(addr)}" title="Label this address"
-          style="background:none; border:none; cursor:pointer; font-size:13px; padding:0; flex-shrink:0; color:${labels.has(addr) ? 'var(--accent)' : 'var(--muted)'}; line-height:1;">
-          ${labels.has(addr) ? '★' : '☆'}
-        </button>
-      </div>
+    const addr = u.address || '';
+    const ada  = u.amount?.find(a => a.unit==='lovelace');
+    const adaVal = ada ? fmt(parseInt(ada.quantity)/1_000_000) + ' ₳' : '—';
+    const isOwn = myAddresses.has(addr);
+    const hidden = needsCollapse && i >= COLLAPSE_THRESHOLD ? ' hidden' : '';
+    return `<div class="utxo-entry${hidden}">
+      <div class="utxo-top"><span class="utxo-ada">${adaVal}</span></div>
+      ${tokenAmounts(u.amount)}
+      <div class="utxo-addr" style="${isOwn?'color:var(--accent);':''}">${escHtml(addr)}</div>
     </div>`;
   }).join('');
   const expandBtn = needsCollapse
-    ? `<button class="utxo-expand-btn" data-hash="${txHash}" data-side="${side}" data-expanded="false">
-        Show ${list.length - COLLAPSE_THRESHOLD} more ▾
-       </button>`
+    ? `<button class="utxo-expand-btn" data-hash="${txHash}" data-side="${side}" data-expanded="false">Show ${list.length-COLLAPSE_THRESHOLD} more ▾</button>`
     : '';
   return `<div class="utxo-list">${rows}${expandBtn}</div>`;
 }
 
 function collateralDetails(tx) {
   const sections = [];
-  if (tx.collateralInputs?.length)  sections.push({ label: `Collateral Inputs (${tx.collateralInputs.length})`,   list: tx.collateralInputs  });
-  if (tx.referenceInputs?.length)   sections.push({ label: `Reference Inputs (${tx.referenceInputs.length})`,    list: tx.referenceInputs   });
-  if (tx.collateralOutputs?.length) sections.push({ label: `Collateral Outputs (${tx.collateralOutputs.length})`, list: tx.collateralOutputs });
+  if (tx.collateralInputs?.length)  sections.push({ label:`Collateral Inputs (${tx.collateralInputs.length})`,   list:tx.collateralInputs  });
+  if (tx.referenceInputs?.length)   sections.push({ label:`Reference Inputs (${tx.referenceInputs.length})`,    list:tx.referenceInputs   });
+  if (tx.collateralOutputs?.length) sections.push({ label:`Collateral Outputs (${tx.collateralOutputs.length})`, list:tx.collateralOutputs });
   if (!sections.length) return '';
-  const inner = sections.map(s => `
-    <div style="margin-bottom:6px;">
-      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">${s.label}</div>
-      ${utxoRows(s.list, tx.hash, 'collateral')}
-    </div>`).join('');
   return `<details style="margin-top:6px;">
-    <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none; letter-spacing:0.04em;">
-      ▸ Collateral / Reference
-    </summary>
-    <div style="margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">${inner}</div>
+    <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none;">▸ Collateral / Reference</summary>
+    <div style="margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">
+      ${sections.map(s=>`<div style="margin-bottom:6px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">${s.label}</div>${utxoRows(s.list,s.label,'collateral')}</div>`).join('')}
+    </div>
   </details>`;
 }
 
+// ── Transaction Log ────────────────────────────────────────────────
 function renderTable() {
   if (!allTxs.length) return;
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const page  = allTxs.slice(start, start + PAGE_SIZE);
+  const page = allTxs.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
   document.getElementById('tx-body').innerHTML = page.map(tx => {
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-
-    const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    const adaSign  = adaNet >= 0 ? '+' : '';
-    const adaStr   = `<span style="font-family:var(--mono); font-size:12px; color:${adaColor};">${adaSign}${fmt(adaNet, 4)} ₳</span>`;
-
-    const tokenSummary = [...tokenNet.entries()].map(([unit, net]) => {
-      const name   = formatAssetName(unit.slice(56)) || 'null';
-      const url    = `https://adastat.net/tokens/${unit}`;
-      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-      const tSign  = net >= 0 ? '+' : '';
-      return `<span style="font-family:var(--mono); font-size:11px; color:${tColor}; margin-right:10px;">
-        ${tSign}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-      </span>`;
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const adaColor = adaNet>=0 ? 'var(--accent)' : 'var(--red)';
+    const adaStr = `<span style="font-family:var(--mono);font-size:12px;color:${adaColor};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>`;
+    const tokenSummary = [...tokenNet.entries()].map(([unit,net]) => {
+      const name = formatAssetName(unit.slice(56)) || 'null';
+      const url  = `https://adastat.net/tokens/${unit}`;
+      const c = net>=0 ? 'var(--accent)' : 'var(--red)';
+      return `<span style="font-family:var(--mono);font-size:11px;color:${c};margin-right:10px;">${net>=0?'+':''}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></span>`;
     }).join('');
-
-    const collat = collateralDetails(tx);
-
     const utxoDetail = `<details style="margin-top:6px;">
-      <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none; letter-spacing:0.04em; list-style:none; display:flex; align-items:center; gap:4px;">
-        <span>▸ Inputs / Outputs</span>
-        <span style="color:var(--border2);">·</span>
-        <span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
+      <summary style="font-size:10px;color:var(--muted);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;">
+        <span>▸ Inputs / Outputs</span><span style="color:var(--border2);">·</span><span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
       </summary>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">
-        <div>
-          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Inputs</div>
-          ${utxoRows(tx.inputs, tx.hash, 'inputs')}
-        </div>
-        <div>
-          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Outputs</div>
-          ${utxoRows(tx.outputs, tx.hash, 'outputs')}
-        </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding:8px;background:var(--surface2);border-radius:8px;">
+        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Inputs</div>${utxoRows(tx.inputs,tx.hash,'inputs')}</div>
+        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Outputs</div>${utxoRows(tx.outputs,tx.hash,'outputs')}</div>
       </div>
-      ${collat}
+      ${collateralDetails(tx)}
     </details>`;
-
+    const staged = pnlStaged.has(tx.hash);
     return `<tr>
-      <td class="hash-cell col-hash" style="vertical-align:top; padding-top:13px;">
-        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
-          ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
-        </a>
-        <button class="trade-add-btn" data-pnl-hash="${tx.hash}" title="Add to Token P&L">+</button>
+      <td class="hash-cell col-hash" style="padding-top:13px;">
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">${tx.hash.slice(0,8)}…${tx.hash.slice(-6)}</a>
+        <button class="trade-add-btn${staged?' active':''}" data-pnl-hash="${tx.hash}" title="Add to P&L">${staged?'✓':'+'}</button>
       </td>
-      <td class="col-date" style="vertical-align:top; padding-top:13px; font-size:12px; color:var(--muted);">${date}</td>
-      <td class="col-summary" style="vertical-align:top;">
-        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding-top:2px;">
-          ${adaStr}
-          ${tokenSummary}
-        </div>
+      <td class="col-date" style="font-size:12px;color:var(--muted);padding-top:13px;">${date}</td>
+      <td class="col-summary">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding-top:2px;">${adaStr}${tokenSummary}</div>
         ${utxoDetail}
       </td>
     </tr>`;
@@ -799,765 +462,418 @@ function renderTable() {
 function renderPagination() {
   const total = Math.ceil(allTxs.length / PAGE_SIZE);
   const pg = document.getElementById('pagination');
-  if (total <= 1) { pg.innerHTML = ''; return; }
+  if (total<=1) { pg.innerHTML=''; return; }
   pg.innerHTML = `
-    <button class="btn btn-ghost" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
+    <button class="btn btn-ghost" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>← Prev</button>
     <span>Page ${currentPage} of ${total}</span>
-    <button class="btn btn-ghost" onclick="goPage(${currentPage + 1})" ${currentPage === total ? 'disabled' : ''}>Next →</button>
-  `;
+    <button class="btn btn-ghost" onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>`;
 }
-
-function goPage(p) { currentPage = p; renderTable(); window.scrollTo({ top: 0 }); }
+function goPage(p) { currentPage=p; renderTable(); window.scrollTo({top:0}); }
 
 function exportCSV() {
-  const rows = [['TX Hash', 'Block', 'Input Label', 'Input Address', 'Input ADA', 'Output Label', 'Output Address', 'Output ADA']];
+  const rows = [['TX Hash','Date','ADA Net','Block']];
   allTxs.forEach(tx => {
-    const maxLen = Math.max(tx.inputs.length, tx.outputs.length, 1);
-    for (let i = 0; i < maxLen; i++) {
-      const inp = tx.inputs[i];
-      const out = tx.outputs[i];
-      const inAda  = inp ? fmt(lovelace(inp.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
-      const outAda = out ? fmt(lovelace(out.amount?.find(a=>a.unit==='lovelace')?.quantity || 0), 6) : '';
-      rows.push([
-        i === 0 ? tx.hash  : '',
-        i === 0 ? tx.block : '',
-        inp ? (labels.get(inp.address)?.name || '') : '',
-        inp ? inp.address : '',
-        inAda,
-        out ? (labels.get(out.address)?.name || '') : '',
-        out ? out.address : '',
-        outAda
-      ]);
-    }
+    const { adaNet } = calcTxNet(tx);
+    rows.push([tx.hash, new Date(tx.time*1000).toLocaleDateString('en-US'), fmt(adaNet,6), tx.block||'']);
   });
-  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const csv = rows.map(r => r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   a.download = 'cardano-transactions.csv';
   a.click();
 }
 
-// ── P&L staging list ──────────────────────────────────────────────
-const pnlStaged = new Set(); // hashes staged for assignment
+// ── P&L Staging ────────────────────────────────────────────────────
+const pnlStaged = new Set();
 
 function togglePnlStaged(hash) {
-  if (pnlStaged.has(hash)) pnlStaged.delete(hash);
-  else pnlStaged.add(hash);
+  pnlStaged.has(hash) ? pnlStaged.delete(hash) : pnlStaged.add(hash);
   renderPnlStaging();
-  // update button state in tx table
   const btn = document.querySelector(`[data-pnl-hash="${hash}"]`);
-  if (btn) {
-    btn.textContent = pnlStaged.has(hash) ? '✓' : '+';
-    btn.classList.toggle('active', pnlStaged.has(hash));
-  }
+  if (btn) { btn.textContent = pnlStaged.has(hash)?'✓':'+'; btn.classList.toggle('active', pnlStaged.has(hash)); }
 }
 
 function renderPnlStaging() {
-  const panel   = document.getElementById('pnl-staging-panel');
-  const listEl  = document.getElementById('pnl-staging-list');
-
-  if (pnlStaged.size === 0) {
-    panel.style.display = 'none';
-    return;
-  }
-  panel.style.display = 'block';
-
+  const panel = document.getElementById('pnl-staging-panel');
+  const listEl = document.getElementById('pnl-staging-list');
+  if (!pnlStaged.size) { panel.style.display='none'; return; }
+  panel.style.display='block';
   listEl.innerHTML = [...pnlStaged].map(hash => {
-    const tx = allTxs.find(t => t.hash === hash);
+    const tx = allTxs.find(t=>t.hash===hash);
     if (!tx) return '';
     const { adaNet } = calcTxNet(tx);
-    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    const short = hash.slice(0,8) + '…' + hash.slice(-6);
-    const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="padding:4px 0; border-bottom:1px solid var(--border); font-size:11px;">
-      <div style="display:flex; align-items:center; gap:4px;">
-        <span style="font-family:var(--mono); color:var(--blue); font-size:10.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${short}</span>
-        <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;flex-shrink:0;">✕</button>
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const c = adaNet>=0?'var(--accent)':'var(--red)';
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;">
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-family:var(--mono);color:var(--blue);font-size:10.5px;flex:1;">${hash.slice(0,8)}…${hash.slice(-6)}</span>
+        <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
       </div>
-      <div style="display:flex; justify-content:space-between; margin-top:2px;">
-        <span style="color:var(--muted); font-size:10px;">${date}</span>
-        <span style="font-family:var(--mono); font-size:10.5px; color:${c};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      <div style="display:flex;justify-content:space-between;margin-top:2px;">
+        <span style="color:var(--muted);font-size:10px;">${date}</span>
+        <span style="font-family:var(--mono);font-size:10.5px;color:${c};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
       </div>
     </div>`;
   }).join('');
-
-  listEl.querySelectorAll('[data-unstage]').forEach(btn => {
-    btn.addEventListener('click', () => togglePnlStaged(btn.dataset.unstage));
-  });
+  listEl.querySelectorAll('[data-unstage]').forEach(btn => btn.addEventListener('click', () => togglePnlStaged(btn.dataset.unstage)));
 }
 
 document.getElementById('pnl-clear-btn').addEventListener('click', () => {
-  [...pnlStaged].forEach(hash => {
-    const btn = document.querySelector(`[data-pnl-hash="${hash}"]`);
-    if (btn) { btn.textContent = '+'; btn.classList.remove('active'); }
-  });
-  pnlStaged.clear();
-  renderPnlStaging();
+  [...pnlStaged].forEach(h => { const b=document.querySelector(`[data-pnl-hash="${h}"]`); if(b){b.textContent='+';b.classList.remove('active');} });
+  pnlStaged.clear(); renderPnlStaging();
 });
+document.getElementById('pnl-assign-btn').addEventListener('click', () => { if (pnlStaged.size) openPnlPopup(); });
 
-document.getElementById('pnl-assign-btn').addEventListener('click', () => {
-  if (pnlStaged.size === 0) return;
-  openPnlPopup();
-});
-
-// ── P&L batch assign popup ─────────────────────────────────────────
-let pnlPopupUnit = null;
-let pnlPopupRole = 'buy';
+// ── P&L Popup ──────────────────────────────────────────────────────
+let pnlPopupUnit = null, pnlPopupRole = 'buy';
 
 function openPnlPopup() {
-  pnlPopupUnit = null;
-  pnlPopupRole = 'buy';
-
-  // fill tx list
-  const txListEl = document.getElementById('pnl-popup-txlist');
-  txListEl.innerHTML = [...pnlStaged].map(hash => {
-    const tx = allTxs.find(t => t.hash === hash);
-    if (!tx) return '';
+  pnlPopupUnit = null; pnlPopupRole = 'buy';
+  document.getElementById('pnl-popup-txlist').innerHTML = [...pnlStaged].map(hash => {
+    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return '';
     const { adaNet } = calcTxNet(tx);
-    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    const short = hash.slice(0,10) + '…' + hash.slice(-6);
-    const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="display:flex; gap:8px; font-size:11px; padding:3px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;">
-      <span style="font-family:var(--mono); color:var(--blue);">${short}</span>
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const c = adaNet>=0?'var(--accent)':'var(--red)';
+    return `<div style="display:flex;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+      <span style="font-family:var(--mono);color:var(--blue);">${hash.slice(0,10)}…${hash.slice(-6)}</span>
       <span style="color:var(--muted);">${date}</span>
-      <span style="font-family:var(--mono); color:${c}; margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      <span style="font-family:var(--mono);color:${c};margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
     </div>`;
   }).join('');
-
-  // fill token list
   const allUnitsForPopup = new Set([...pnlTokenTxs.keys()]);
-  allTxs.forEach(tx => {
-    const { tokenNet } = calcTxNet(tx);
-    tokenNet.forEach((_, unit) => allUnitsForPopup.add(unit));
-  });
-
+  allTxs.forEach(tx => { const {tokenNet} = calcTxNet(tx); tokenNet.forEach((_,u) => allUnitsForPopup.add(u)); });
   const tokensEl = document.getElementById('pnl-popup-tokens');
-  if (allUnitsForPopup.size === 0) {
-    tokensEl.innerHTML = `<div style="font-size:12px; color:var(--muted); font-style:italic;">No tokens found in transaction history.</div>`;
-  } else {
-    tokensEl.innerHTML = [...allUnitsForPopup].map(unit => {
-      const name = formatAssetName(unit.slice(56)) || 'null';
-      return `<div class="pnl-token-option" data-unit="${unit}"
-          style="padding:6px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px;
-                 border:1px solid var(--border); background:var(--surface2);">
-        <span style="color:var(--amber); font-size:12px; font-weight:600;">${escHtml(name)}</span>
-        <span style="font-size:10px; color:var(--muted); font-family:var(--mono);">${unit.slice(0,12)}…</span>
-      </div>`;
-    }).join('');
-
-    tokensEl.querySelectorAll('.pnl-token-option').forEach(el => {
-      el.addEventListener('click', () => {
-        tokensEl.querySelectorAll('.pnl-token-option').forEach(e => e.style.borderColor = 'var(--border)');
-        el.style.borderColor = 'var(--accent)';
-        pnlPopupUnit = el.dataset.unit;
-      });
-    });
-  }
-
+  tokensEl.innerHTML = [...allUnitsForPopup].map(unit => {
+    const name = formatAssetName(unit.slice(56)) || 'null';
+    return `<div class="pnl-token-option" data-unit="${unit}" style="padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface2);">
+      <span style="color:var(--amber);font-size:12px;font-weight:600;">${escHtml(name)}</span>
+      <span style="font-size:10px;color:var(--muted);font-family:var(--mono);">${unit.slice(0,12)}…</span>
+    </div>`;
+  }).join('');
+  tokensEl.querySelectorAll('.pnl-token-option').forEach(el => el.addEventListener('click', () => {
+    tokensEl.querySelectorAll('.pnl-token-option').forEach(e => e.style.borderColor='var(--border)');
+    el.style.borderColor='var(--accent)'; pnlPopupUnit=el.dataset.unit;
+  }));
   updatePnlRoleBtns();
-  document.getElementById('pnl-popup').style.display = 'flex';
+  document.getElementById('pnl-popup').style.display='flex';
 }
 
 function updatePnlRoleBtns() {
-  document.getElementById('pnl-popup-buy').style.opacity  = pnlPopupRole === 'buy'  ? '1' : '0.4';
-  document.getElementById('pnl-popup-sell').style.opacity = pnlPopupRole === 'sell' ? '1' : '0.4';
+  document.getElementById('pnl-popup-buy').style.opacity  = pnlPopupRole==='buy'  ? '1':'0.4';
+  document.getElementById('pnl-popup-sell').style.opacity = pnlPopupRole==='sell' ? '1':'0.4';
 }
-
-document.getElementById('pnl-popup-buy').addEventListener('click',  () => { pnlPopupRole = 'buy';  updatePnlRoleBtns(); });
-document.getElementById('pnl-popup-sell').addEventListener('click', () => { pnlPopupRole = 'sell'; updatePnlRoleBtns(); });
+document.getElementById('pnl-popup-buy').addEventListener('click',  () => { pnlPopupRole='buy';  updatePnlRoleBtns(); });
+document.getElementById('pnl-popup-sell').addEventListener('click', () => { pnlPopupRole='sell'; updatePnlRoleBtns(); });
 
 document.getElementById('pnl-popup-confirm').addEventListener('click', () => {
   if (!pnlPopupUnit) { alert('Please select a token.'); return; }
-
   if (!pnlTokenTxs.has(pnlPopupUnit)) pnlTokenTxs.set(pnlPopupUnit, new Map());
   if (!pnlRoles.has(pnlPopupUnit))    pnlRoles.set(pnlPopupUnit, new Map());
-
   [...pnlStaged].forEach(hash => {
-    const tx = allTxs.find(t => t.hash === hash);
-    if (!tx) return;
+    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return;
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const tNet = tokenNet.get(pnlPopupUnit) || 0;
-    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    pnlTokenTxs.get(pnlPopupUnit).set(hash, { hash, date, tokenNet: tNet, adaNet });
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    pnlTokenTxs.get(pnlPopupUnit).set(hash, { hash, date, tokenNet: tokenNet.get(pnlPopupUnit)||0, adaNet });
     pnlRoles.get(pnlPopupUnit).set(hash, pnlPopupRole);
   });
-
   const assignedUnit = pnlPopupUnit;
   closePnlPopup();
   renderTokenPnl();
-  // open that token section
   const body = document.getElementById(`pnl-body-${assignedUnit.slice(0,16)}`);
   if (body) body.classList.add('open');
 });
 
-function closePnlPopup() {
-  document.getElementById('pnl-popup').style.display = 'none';
-  pnlPopupUnit = null;
-}
+function closePnlPopup() { document.getElementById('pnl-popup').style.display='none'; pnlPopupUnit=null; }
+document.getElementById('pnl-popup').addEventListener('click', e => { if (e.target===document.getElementById('pnl-popup')) closePnlPopup(); });
 
-document.getElementById('pnl-popup').addEventListener('click', e => {
-  if (e.target === document.getElementById('pnl-popup')) closePnlPopup();
-});
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    closePnlPopup();
-    // also close label popup
-    document.getElementById('popup-overlay').classList.remove('open');
-  }
-});
-// pnlRoles:   Map<unit, Map<hash, 'buy'|'sell'|'none'>>
-// pnlTokenTxs: Map<unit, Map<hash, { hash, date, tokenNet, adaNet }>>
-//   — tokenNet=0 for manually-added txs with no token flow
+// ── Token P&L ──────────────────────────────────────────────────────
 const pnlRoles    = new Map();
-const pnlTokenTxs = new Map(); // persistent across rebuilds
-
-function pnlEntryFromTx(tx) {
-  const { adaNet, tokenNet } = calcTxNet(tx);
-  const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-  return { hash: tx.hash, date, adaNet, tokenNet };
-}
+const pnlTokenTxs = new Map();
 
 function buildTokenPnl() {
-  // seed from allTxs — add token-touching txs, auto-assign gains as buy
   allTxs.forEach(tx => {
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
     tokenNet.forEach((tNet, unit) => {
       if (!pnlTokenTxs.has(unit)) pnlTokenTxs.set(unit, new Map());
       if (!pnlRoles.has(unit))    pnlRoles.set(unit, new Map());
       if (!pnlTokenTxs.get(unit).has(tx.hash)) {
-        pnlTokenTxs.get(unit).set(tx.hash, { hash: tx.hash, date, tokenNet: tNet, adaNet });
-        // auto-assign: token gain = buy, token loss = sell
-        if (tNet > 0) pnlRoles.get(unit).set(tx.hash, 'buy');
-        else if (tNet < 0) pnlRoles.get(unit).set(tx.hash, 'sell');
+        pnlTokenTxs.get(unit).set(tx.hash, { hash:tx.hash, date, tokenNet:tNet, adaNet });
+        pnlRoles.get(unit).set(tx.hash, tNet>0 ? 'buy' : 'sell');
       }
     });
   });
-
-  renderTokenPnl();
-}
-
-function removeTxFromPnl(unit, hash) {
-  pnlTokenTxs.get(unit)?.delete(hash);
-  pnlRoles.get(unit)?.delete(hash);
   renderTokenPnl();
 }
 
 function renderTokenPnl() {
-  const sidebar  = document.getElementById('token-pnl-sidebar');
-  const list     = document.getElementById('token-pnl-list');
-
-  if (pnlTokenTxs.size === 0) { sidebar.style.display = 'none'; return; }
-  sidebar.style.display = 'block';
-
-  // preserve open state
+  const sidebar = document.getElementById('token-pnl-sidebar');
+  const list    = document.getElementById('token-pnl-list');
+  if (!pnlTokenTxs.size) { sidebar.style.display='none'; return; }
+  sidebar.style.display='block';
   const openUnits = new Set();
   list.querySelectorAll('.pnl-token-body.open').forEach(el => openUnits.add(el.dataset.unit));
-
   list.innerHTML = [...pnlTokenTxs.entries()].map(([unit, txMap]) => {
-    const txs      = [...txMap.values()];
-    const name     = formatAssetName(unit.slice(56)) || 'null';
-    const url      = `https://adastat.net/tokens/${unit}`;
-    const totalIn  = txs.filter(t => t.tokenNet > 0).reduce((s, t) => s + t.tokenNet, 0);
-    const totalOut = txs.filter(t => t.tokenNet < 0).reduce((s, t) => s + Math.abs(t.tokenNet), 0);
-    const netPos   = totalIn - totalOut;
-    const netColor = netPos >= 0 ? 'var(--accent)' : 'var(--red)';
-    const bodyId   = `pnl-body-${unit.slice(0,16)}`;
-    const isOpen   = openUnits.has(unit);
-
-    if (!pnlRoles.has(unit)) pnlRoles.set(unit, new Map());
-    const roles = pnlRoles.get(unit);
-
-    const txRows = txs.map(t => {
-      const role     = roles.get(t.hash) || 'none';
-      const tColor   = t.tokenNet > 0 ? 'var(--accent)' : t.tokenNet < 0 ? 'var(--red)' : 'var(--muted)';
-      const tSign    = t.tokenNet > 0 ? '+' : '';
-      const adaColor = t.adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-      const short    = t.hash.slice(0,8) + '…' + t.hash.slice(-6);
-      const tknStr   = t.tokenNet !== 0 ? `${tSign}${fmt4sig(t.tokenNet)} tkn` : '<span style="color:var(--muted)">— tkn</span>';
+    const txs     = [...txMap.values()];
+    const name    = formatAssetName(unit.slice(56)) || 'null';
+    const url     = `https://adastat.net/tokens/${unit}`;
+    const totalIn  = txs.filter(t=>t.tokenNet>0).reduce((s,t)=>s+t.tokenNet,0);
+    const totalOut = txs.filter(t=>t.tokenNet<0).reduce((s,t)=>s+Math.abs(t.tokenNet),0);
+    const netPos  = totalIn - totalOut;
+    const netColor = netPos>=0?'var(--accent)':'var(--red)';
+    const bodyId  = `pnl-body-${unit.slice(0,16)}`;
+    const roles   = pnlRoles.get(unit) || new Map();
+    const txRows  = txs.map(t => {
+      const role = roles.get(t.hash)||'none';
+      const tColor = t.tokenNet>0?'var(--accent)':t.tokenNet<0?'var(--red)':'var(--muted)';
+      const adaColor = t.adaNet>=0?'var(--accent)':'var(--red)';
+      const tknStr = t.tokenNet!==0 ? `${t.tokenNet>0?'+':''}${fmt4sig(t.tokenNet)} tkn` : '<span style="color:var(--muted)">— tkn</span>';
       return `<div class="pnl-tx-row">
         <select class="pnl-role-select" data-unit="${unit}" data-hash="${t.hash}">
           <option value="none" ${role==='none'?'selected':''}>—</option>
           <option value="buy"  ${role==='buy' ?'selected':''}>Buy</option>
           <option value="sell" ${role==='sell'?'selected':''}>Sell</option>
         </select>
-        <span class="pnl-tx-link" data-hash="${t.hash}"
-           style="font-family:var(--mono); color:var(--blue); text-decoration:underline; font-size:10.5px; cursor:pointer;">${short}</span>
-        <span style="color:var(--muted); font-size:10.5px; white-space:nowrap;">${t.date}</span>
-        <span style="font-family:var(--mono); color:${tColor}; font-size:11px;">${tknStr}</span>
-        <span style="font-family:var(--mono); color:${adaColor}; font-size:11px;">${t.adaNet >= 0?'+':''}${fmt(t.adaNet,4)} ₳</span>
-        <button onclick="removeTxFromPnl('${unit}','${t.hash}')"
-          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;flex-shrink:0;">✕</button>
+        <span class="pnl-tx-link" data-hash="${t.hash}">${t.hash.slice(0,8)}…${t.hash.slice(-6)}</span>
+        <span style="color:var(--muted);font-size:10.5px;white-space:nowrap;">${t.date}</span>
+        <span style="font-family:var(--mono);color:${tColor};font-size:11px;">${tknStr}</span>
+        <span style="font-family:var(--mono);color:${adaColor};font-size:11px;">${t.adaNet>=0?'+':''}${fmt(t.adaNet,4)} ₳</span>
+        <button onclick="removeTxFromPnl('${unit}','${t.hash}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
       </div>`;
     }).join('');
-
-    const summary = pnlSummaryHTML(unit, txs, roles);
-
     return `<div class="pnl-token-row" data-unit="${unit}">
       <div class="pnl-token-header" onclick="togglePnlToken('${unit}')">
-        <span class="pnl-token-name">
-          <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;"
-             onclick="event.stopPropagation()">${escHtml(name)}</a>
-        </span>
+        <span class="pnl-token-name"><a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;" onclick="event.stopPropagation()">${escHtml(name)}</a></span>
         <span class="pnl-stat" style="color:var(--accent);">▲ ${fmt4sig(totalIn)}</span>
         <span class="pnl-stat" style="color:var(--red);">▼ ${fmt4sig(totalOut)}</span>
         <span class="pnl-stat" style="color:${netColor};">Net ${netPos>=0?'+':''}${fmt4sig(netPos)}</span>
       </div>
-      <div class="pnl-token-body${isOpen?' open':''}" id="${bodyId}" data-unit="${unit}">
+      <div class="pnl-token-body${openUnits.has(unit)?' open':''}" id="${bodyId}" data-unit="${unit}">
         ${txRows}
-        <div class="pnl-summary-box" id="pnl-sum-${unit.slice(0,16)}">${summary}</div>
+        <div class="pnl-summary-box" id="pnl-sum-${unit.slice(0,16)}">${pnlSummaryHTML(unit,txs,roles)}</div>
       </div>
     </div>`;
   }).join('');
-
   renderPnlTotals();
-
-  // attach role-select listeners
-  list.querySelectorAll('.pnl-role-select').forEach(sel => {
-    sel.addEventListener('change', e => {
-      const unit = e.target.dataset.unit;
-      const hash = e.target.dataset.hash;
-      pnlRoles.get(unit)?.set(hash, e.target.value);
-      const txs   = [...(pnlTokenTxs.get(unit)?.values() || [])];
-      const roles = pnlRoles.get(unit);
-      const sumEl = document.getElementById(`pnl-sum-${unit.slice(0,16)}`);
-      if (sumEl) sumEl.innerHTML = pnlSummaryHTML(unit, txs, roles);
-      renderPnlTotals();
-    });
-  });
-  // attach pnl-tx-link click — scroll to tx in table
-  list.querySelectorAll('.pnl-tx-link').forEach(el => {
-    el.addEventListener('click', () => scrollToTx(el.dataset.hash));
-  });
-}
-
-function scrollToTx(hash) {
-  // find which page the tx is on
-  const idx = allTxs.findIndex(t => t.hash === hash);
-  if (idx === -1) return;
-  const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
-  if (targetPage !== currentPage) {
-    currentPage = targetPage;
-    renderTable();
-  }
-  // wait for render then scroll and highlight
-  requestAnimationFrame(() => {
-    const row = document.querySelector(`tr [data-pnl-hash="${hash}"]`)?.closest('tr')
-             || document.querySelector(`tr [data-hash="${hash}"]`)?.closest('tr');
-    if (!row) return;
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    row.style.transition = 'background 0.2s';
-    row.style.background = 'rgba(12,217,160,0.12)';
-    setTimeout(() => { row.style.background = ''; }, 1800);
-  });
+  list.querySelectorAll('.pnl-role-select').forEach(sel => sel.addEventListener('change', e => {
+    const unit=e.target.dataset.unit, hash=e.target.dataset.hash;
+    pnlRoles.get(unit)?.set(hash, e.target.value);
+    const txs=[...(pnlTokenTxs.get(unit)?.values()||[])];
+    const sumEl=document.getElementById(`pnl-sum-${unit.slice(0,16)}`);
+    if (sumEl) sumEl.innerHTML=pnlSummaryHTML(unit,txs,pnlRoles.get(unit));
+    renderPnlTotals();
+  }));
+  list.querySelectorAll('.pnl-tx-link').forEach(el => el.addEventListener('click', () => scrollToTx(el.dataset.hash)));
 }
 
 function pnlSummaryHTML(unit, txs, roles) {
-  let adaPaid = 0, adaReceived = 0, tokensBought = 0, tokensSold = 0;
+  let adaPaid=0, adaReceived=0, tokensBought=0, tokensSold=0;
   txs.forEach(t => {
-    const role = roles.get(t.hash) || 'none';
-    if (role === 'buy')  { adaPaid     += Math.abs(t.adaNet); tokensBought += t.tokenNet;          }
-    if (role === 'sell') { adaReceived += t.adaNet;           tokensSold   += Math.abs(t.tokenNet); }
+    const role=roles.get(t.hash)||'none';
+    if (role==='buy')  { adaPaid     +=Math.abs(t.adaNet); tokensBought+=t.tokenNet; }
+    if (role==='sell') { adaReceived +=t.adaNet;           tokensSold  +=Math.abs(t.tokenNet); }
   });
-  const gain      = adaReceived - adaPaid;
-  const gainColor = gain >= 0 ? 'var(--accent)' : 'var(--red)';
-  const avgBuy    = tokensBought > 0 ? adaPaid     / tokensBought : null;
-  const avgSell   = tokensSold   > 0 ? adaReceived / tokensSold   : null;
-  if (adaPaid === 0 && adaReceived === 0) {
-    return `<span style="font-size:11px; color:var(--muted);">Mark txs as Buy or Sell above to calculate P&amp;L</span>`;
-  }
-  return `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; font-size:11px;">
-      <div><span style="color:var(--muted);">ADA paid</span> <span style="font-family:var(--mono); color:var(--red);">${fmt(adaPaid,4)} ₳</span>${avgBuy!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgBuy,6)} ₳/tkn)</span>`:''}</div>
-      <div><span style="color:var(--muted);">ADA received</span> <span style="font-family:var(--mono); color:var(--accent);">${fmt(adaReceived,4)} ₳</span>${avgSell!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgSell,6)} ₳/tkn)</span>`:''}</div>
-      <div><span style="color:var(--muted);">Tokens bought</span> <span style="font-family:var(--mono); color:var(--accent);">${fmt4sig(tokensBought)}</span></div>
-      <div><span style="color:var(--muted);">Tokens sold</span> <span style="font-family:var(--mono); color:var(--red);">${fmt4sig(tokensSold)}</span></div>
-    </div>
-    <div style="margin-top:6px; font-size:12px; font-weight:600; font-family:var(--mono); color:${gainColor};">
-      Net gain: ${gain>=0?'+':''}${fmt(gain,4)} ₳
-    </div>`;
+  if (adaPaid===0 && adaReceived===0) return `<span style="font-size:11px;color:var(--muted);">Mark txs as Buy or Sell to calculate P&L</span>`;
+  const gain=adaReceived-adaPaid, gc=gain>=0?'var(--accent)':'var(--red)';
+  const avgBuy =tokensBought>0?adaPaid/tokensBought:null;
+  const avgSell=tokensSold>0?adaReceived/tokensSold:null;
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:11px;">
+    <div><span style="color:var(--muted);">ADA paid</span> <span style="font-family:var(--mono);color:var(--red);">${fmt(adaPaid,4)} ₳</span>${avgBuy!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgBuy,6)} ₳/tkn)</span>`:''}</div>
+    <div><span style="color:var(--muted);">ADA received</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt(adaReceived,4)} ₳</span>${avgSell!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgSell,6)} ₳/tkn)</span>`:''}</div>
+    <div><span style="color:var(--muted);">Tokens bought</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt4sig(tokensBought)}</span></div>
+    <div><span style="color:var(--muted);">Tokens sold</span> <span style="font-family:var(--mono);color:var(--red);">${fmt4sig(tokensSold)}</span></div>
+  </div>
+  <div style="margin-top:6px;font-size:12px;font-weight:600;font-family:var(--mono);color:${gc};">Net gain: ${gain>=0?'+':''}${fmt(gain,4)} ₳</div>`;
 }
 
 function renderPnlTotals() {
-  const totalsEl = document.getElementById('token-pnl-totals');
-  let grandPaid = 0, grandReceived = 0, hasAny = false;
-  pnlTokenTxs.forEach((txMap, unit) => {
-    const roles = pnlRoles.get(unit) || new Map();
-    txMap.forEach(t => {
-      const role = roles.get(t.hash) || 'none';
-      if (role === 'buy')  { grandPaid     += Math.abs(t.adaNet); hasAny = true; }
-      if (role === 'sell') { grandReceived += t.adaNet;           hasAny = true; }
-    });
+  const el=document.getElementById('token-pnl-totals');
+  let grandPaid=0, grandReceived=0, hasAny=false;
+  pnlTokenTxs.forEach((txMap,unit) => {
+    const roles=pnlRoles.get(unit)||new Map();
+    txMap.forEach(t => { const r=roles.get(t.hash)||'none'; if(r==='buy'){grandPaid+=Math.abs(t.adaNet);hasAny=true;} if(r==='sell'){grandReceived+=t.adaNet;hasAny=true;} });
   });
-  if (!hasAny) { totalsEl.style.display = 'none'; return; }
-  const grandGain = grandReceived - grandPaid;
-  const gc = grandGain >= 0 ? 'var(--accent)' : 'var(--red)';
-  totalsEl.style.display = 'block';
-  totalsEl.innerHTML = `
-    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Overall Token P&amp;L</div>
-    <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:11px; margin-bottom:4px;">
-      <span><span style="color:var(--muted);">Total ADA paid</span> <span style="font-family:var(--mono); color:var(--red);">${fmt(grandPaid,4)} ₳</span></span>
-      <span><span style="color:var(--muted);">Total ADA received</span> <span style="font-family:var(--mono); color:var(--accent);">${fmt(grandReceived,4)} ₳</span></span>
+  if (!hasAny) { el.style.display='none'; return; }
+  const gain=grandReceived-grandPaid, gc=gain>=0?'var(--accent)':'var(--red)';
+  el.style.display='block';
+  el.innerHTML=`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Overall Token P&L</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:4px;">
+      <span><span style="color:var(--muted);">Total ADA paid</span> <span style="font-family:var(--mono);color:var(--red);">${fmt(grandPaid,4)} ₳</span></span>
+      <span><span style="color:var(--muted);">Total ADA received</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt(grandReceived,4)} ₳</span></span>
     </div>
-    <div style="font-size:13px; font-weight:600; font-family:var(--mono); color:${gc};">Net: ${grandGain>=0?'+':''}${fmt(grandGain,4)} ₳</div>`;
+    <div style="font-size:13px;font-weight:600;font-family:var(--mono);color:${gc};">Net: ${gain>=0?'+':''}${fmt(gain,4)} ₳</div>`;
 }
 
-function togglePnlToken(unit) {
-  const body = document.getElementById(`pnl-body-${unit.slice(0,16)}`);
-  if (body) body.classList.toggle('open');
+function removeTxFromPnl(unit, hash) { pnlTokenTxs.get(unit)?.delete(hash); pnlRoles.get(unit)?.delete(hash); renderTokenPnl(); }
+function togglePnlToken(unit) { const b=document.getElementById(`pnl-body-${unit.slice(0,16)}`); if(b) b.classList.toggle('open'); }
+
+function scrollToTx(hash) {
+  const idx = allTxs.findIndex(t=>t.hash===hash);
+  if (idx===-1) return;
+  const targetPage = Math.floor(idx/PAGE_SIZE)+1;
+  if (targetPage!==currentPage) { currentPage=targetPage; renderTable(); }
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`[data-pnl-hash="${hash}"]`)?.closest('tr');
+    if (!row) return;
+    row.scrollIntoView({behavior:'smooth',block:'center'});
+    row.style.transition='background 0.2s';
+    row.style.background='rgba(12,217,160,0.12)';
+    setTimeout(()=>{row.style.background='';},1800);
+  });
 }
 
-// ── Starred txs removed — portfolio Set no longer needed ────────────
-
-// ── Trades: locked trades list ─────────────────────────────────────
-// lockedTrades: [ { id, name, hashes: Set } ]
+// ── Trades ─────────────────────────────────────────────────────────
 const lockedTrades = [];
+const tradeSelected = new Set();
 let tradeIdCounter = 0;
 
+const TRADE_TYPE_META = {
+  trade:      { label:'Token trade',        color:'var(--blue)',   bg:'rgba(96,165,250,0.12)' },
+  bought_ada: { label:'Bought ADA with USD', color:'var(--accent)', bg:'var(--accent-dim)'    },
+  interest:   { label:'Interest earned',     color:'var(--amber)', bg:'var(--amber-dim)'     },
+  other:      { label:'Other',               color:'var(--muted)', bg:'var(--surface2)'      },
+};
+
 function calcTradeNet(hashes) {
-  let totalAdaNet = 0;
-  const tokenNets = new Map();
-  [...hashes].forEach(hash => {
-    const tx = allTxs.find(t => t.hash === hash);
-    if (!tx) return;
-    const { adaNet, tokenNet } = calcTxNet(tx);
-    totalAdaNet += adaNet;
-    tokenNet.forEach((net, unit) => tokenNets.set(unit, (tokenNets.get(unit) || 0) + net));
-  });
+  let totalAdaNet=0; const tokenNets=new Map();
+  [...hashes].forEach(hash => { const tx=allTxs.find(t=>t.hash===hash); if(!tx) return; const {adaNet,tokenNet}=calcTxNet(tx); totalAdaNet+=adaNet; tokenNet.forEach((n,u)=>tokenNets.set(u,(tokenNets.get(u)||0)+n)); });
   return { totalAdaNet, tokenNets };
 }
 
-const TRADE_TYPE_META = {
-  trade:      { label: 'Token trade',        color: 'var(--blue)',   bg: 'rgba(96,165,250,0.12)' },
-  bought_ada: { label: 'Bought ADA with USD', color: 'var(--accent)', bg: 'var(--accent-dim)'     },
-  interest:   { label: 'Interest earned',     color: 'var(--amber)', bg: 'var(--amber-dim)'      },
-  other:      { label: 'Other',               color: 'var(--muted)', bg: 'var(--surface2)'       },
-};
-
-function tradeHTML(trade) {
-  const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
-  const adaColor = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-  const adaSign  = totalAdaNet >= 0 ? '+' : '';
-  const typeMeta = TRADE_TYPE_META[trade.type] || TRADE_TYPE_META.other;
-
-  const txRows = [...trade.hashes].map(hash => {
-    const tx    = allTxs.find(t => t.hash === hash);
-    const date  = tx ? new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
-    const short = hash.slice(0, 8) + '…' + hash.slice(-6);
-    const { adaNet } = calcTxNet(tx);
-    const c = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="display:flex; justify-content:space-between; gap:8px; font-size:11px; margin-bottom:3px; flex-wrap:wrap;">
-      <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
-         style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
-      <span style="color:var(--muted);">${date}</span>
-      <span style="font-family:var(--mono); color:${c};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
-    </div>`;
-  }).join('');
-
-  const tokenCostRows = [...tokenNets.entries()].map(([unit, net]) => {
-    const name = formatAssetName(unit.slice(56)) || 'null';
-    const url  = `https://adastat.net/tokens/${unit}`;
-    const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-    const tSign  = net >= 0 ? '+' : '';
-    let costStr = '';
-    if (net !== 0 && totalAdaNet !== 0) {
-      costStr = `<span style="color:var(--muted); font-size:10px;">${fmt(Math.abs(totalAdaNet / net), 6)} ₳ each</span>`;
-    }
-    return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:3px; font-size:11px; font-family:var(--mono); flex-wrap:wrap;">
-      <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
-      <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-      ${costStr}
-    </div>`;
-  }).join('');
-
-  // type-specific summary line
-  let typeSummary = '';
-  if (trade.type === 'bought_ada') {
-    typeSummary = `<div style="font-size:11px; color:var(--muted); margin-top:4px;">ADA received: <span style="color:var(--accent); font-family:var(--mono);">+${fmt(totalAdaNet, 4)} ₳</span></div>`;
-  } else if (trade.type === 'interest') {
-    typeSummary = `<div style="font-size:11px; color:var(--muted); margin-top:4px;">Interest earned: <span style="color:var(--accent); font-family:var(--mono);">+${fmt(Math.abs(totalAdaNet), 4)} ₳</span>${tokenNets.size ? ' + tokens' : ''}</div>`;
-  }
-
-  return `<div class="locked-trade" data-trade-id="${trade.id}"
-    style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:6px;">
-      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-        <span style="font-size:12px; font-weight:600; color:var(--text);">${escHtml(trade.name || 'Trade ' + trade.id)}</span>
-        <span style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:99px;
-                     background:${typeMeta.bg}; color:${typeMeta.color};">${typeMeta.label}</span>
-      </div>
-      <button data-remove-trade="${trade.id}"
-        style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; flex-shrink:0;">✕</button>
-    </div>
-    <div style="margin-bottom:6px;">${txRows}</div>
-    <div style="border-top:1px solid var(--border); padding-top:6px;">
-      <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${adaSign}${fmt(totalAdaNet, 4)} ₳</div>
-      ${typeSummary}
-      ${tokenNets.size && trade.type === 'trade' ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px; margin-top:4px;">Token Cost Basis</div>${tokenCostRows}` : ''}
-      ${tokenNets.size && trade.type !== 'trade' ? tokenCostRows : ''}
-    </div>
-  </div>`;
-}
-
 function renderTradesSidebar() {
-  const sidebar  = document.getElementById('trades-sidebar');
-  const staging  = document.getElementById('trade-staging');
-  const stagList = document.getElementById('staging-list');
-  const list     = document.getElementById('trades-list');
-
-  const hasStaging = tradeSelected.size > 0;
-  const hasLocked  = lockedTrades.length > 0;
-
-  if (!hasStaging && !hasLocked) { sidebar.style.display = 'none'; return; }
-  sidebar.style.display = 'block';
-
-  // staging area
-  staging.style.display = hasStaging ? 'block' : 'none';
+  const sidebar=document.getElementById('trades-sidebar');
+  const staging=document.getElementById('trade-staging');
+  const stagList=document.getElementById('staging-list');
+  const list=document.getElementById('trades-list');
+  const hasStaging=tradeSelected.size>0, hasLocked=lockedTrades.length>0;
+  if (!hasStaging && !hasLocked) { sidebar.style.display='none'; return; }
+  sidebar.style.display='block';
+  staging.style.display=hasStaging?'block':'none';
   if (hasStaging) {
-    const { totalAdaNet, tokenNets } = calcTradeNet(tradeSelected);
-    const adaColor = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-
-    const txRows = [...tradeSelected].map(hash => {
-      const tx    = allTxs.find(t => t.hash === hash);
-      const date  = tx ? new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '';
-      const short = hash.slice(0, 8) + '…' + hash.slice(-6);
-      const { adaNet } = calcTxNet(tx);
-      const c = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-      return `<div style="display:flex; justify-content:space-between; gap:8px; font-size:11px; margin-bottom:3px; flex-wrap:wrap;">
-        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
-           style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
+    const {totalAdaNet,tokenNets}=calcTradeNet(tradeSelected);
+    const c=totalAdaNet>=0?'var(--accent)':'var(--red)';
+    const txRows=[...tradeSelected].map(hash=>{
+      const tx=allTxs.find(t=>t.hash===hash); if(!tx) return '';
+      const {adaNet}=calcTxNet(tx);
+      const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+      const tc=adaNet>=0?'var(--accent)':'var(--red)';
+      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:3px;flex-wrap:wrap;">
+        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener" style="font-family:var(--mono);color:var(--blue);text-decoration:none;">${hash.slice(0,8)}…${hash.slice(-6)}</a>
         <span style="color:var(--muted);">${date}</span>
-        <span style="font-family:var(--mono); color:${c};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
+        <span style="font-family:var(--mono);color:${tc};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
       </div>`;
     }).join('');
-
-    const tokenCostRows = [...tokenNets.entries()].map(([unit, net]) => {
-      const name = formatAssetName(unit.slice(56)) || 'null';
-      const url  = `https://adastat.net/tokens/${unit}`;
-      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-      const tSign  = net >= 0 ? '+' : '';
-      let costStr = '';
-      if (net !== 0 && totalAdaNet !== 0) {
-        costStr = `<span style="color:var(--muted); font-size:10px;">${fmt(Math.abs(totalAdaNet / net), 6)} ₳ each</span>`;
-      }
-      return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:3px; font-size:11px; font-family:var(--mono); flex-wrap:wrap;">
-        <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
-        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-        ${costStr}
+    const tokenRows=[...tokenNets.entries()].map(([unit,net])=>{
+      const name=formatAssetName(unit.slice(56))||'null';
+      const url=`https://adastat.net/tokens/${unit}`;
+      const tc=net>=0?'var(--accent)':'var(--red)';
+      const cost=net!==0&&totalAdaNet!==0?`<span style="color:var(--muted);font-size:10px;">${fmt(Math.abs(totalAdaNet/net),6)} ₳ each</span>`:'';
+      return `<div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;">
+        <span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span>
+        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a>${cost}
       </div>`;
     }).join('');
-
-    stagList.innerHTML = `
-      ${txRows}
-      <div style="border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
-        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${adaColor};">${totalAdaNet >= 0 ? '+' : ''}${fmt(totalAdaNet, 4)} ₳</div>
-        ${tokenNets.size ? `<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 2px;">Token Cost Basis</div>${tokenCostRows}` : ''}
-      </div>`;
-  }
-
-  // locked trades
-  list.innerHTML = lockedTrades.map(tradeHTML).join('');
-
-  // totals across all locked trades
-  const totalsEl = document.getElementById('trades-totals');
-  if (lockedTrades.length === 0) { totalsEl.style.display = 'none'; return; }
-
-  let grandAdaNet = 0;
-  const grandTokenNets = new Map();
-  lockedTrades.forEach(trade => {
-    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
-    grandAdaNet += totalAdaNet;
-    tokenNets.forEach((net, unit) => grandTokenNets.set(unit, (grandTokenNets.get(unit) || 0) + net));
-  });
-
-  totalsEl.style.display = 'block';
-
-  // break down by type
-  const byType = {};
-  lockedTrades.forEach(trade => {
-    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
-    const type = trade.type || 'other';
-    if (!byType[type]) byType[type] = { adaNet: 0, tokenNets: new Map() };
-    byType[type].adaNet += totalAdaNet;
-    tokenNets.forEach((net, unit) => byType[type].tokenNets.set(unit, (byType[type].tokenNets.get(unit) || 0) + net));
-  });
-
-  const typeBreakdown = Object.entries(byType).map(([type, data]) => {
-    const meta   = TRADE_TYPE_META[type] || TRADE_TYPE_META.other;
-    const c      = data.adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    const tokens = [...data.tokenNets.entries()].map(([unit, net]) => {
-      const name   = formatAssetName(unit.slice(56)) || 'null';
-      const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-      return `<span style="font-family:var(--mono); font-size:10px; color:${tColor}; margin-left:6px;">${net >= 0 ? '+' : ''}${fmt4sig(net)} <span style="color:var(--amber);">${escHtml(name)}</span></span>`;
-    }).join('');
-    return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:5px; flex-wrap:wrap;">
-      <span style="font-size:10px; font-weight:600; padding:1px 6px; border-radius:99px; background:${meta.bg}; color:${meta.color}; white-space:nowrap;">${meta.label}</span>
-      <span style="font-family:var(--mono); font-size:11px; color:${c};">${data.adaNet >= 0 ? '+' : ''}${fmt(data.adaNet, 4)} ₳</span>
-      ${tokens}
+    stagList.innerHTML=`${txRows}<div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px;">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${c};">${totalAdaNet>=0?'+':''}${fmt(totalAdaNet,4)} ₳</div>
+      ${tokenNets.size?`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 2px;">Token Cost Basis</div>${tokenRows}`:''}
     </div>`;
-  }).join('');
-
-  const adaColor = grandAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-  const tokenTotalRows = [...grandTokenNets.entries()].map(([unit, net]) => {
-    const name   = formatAssetName(unit.slice(56)) || 'null';
-    const url    = `https://adastat.net/tokens/${unit}`;
-    const tColor = net >= 0 ? 'var(--accent)' : 'var(--red)';
-    const tSign  = net >= 0 ? '+' : '';
-    return `<div style="display:flex; align-items:baseline; gap:6px; font-size:11px; font-family:var(--mono); flex-wrap:wrap; margin-top:3px;">
-      <span style="color:${tColor};">${tSign}${fmt4sig(net)}</span>
-      <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-    </div>`;
-  }).join('');
-
-  totalsEl.innerHTML = `
-    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total across all trades</div>
-    <div style="font-family:var(--mono); font-size:13px; font-weight:600; color:${adaColor}; margin-bottom:4px;">${grandAdaNet >= 0 ? '+' : ''}${fmt(grandAdaNet, 4)} ₳</div>
-    ${grandTokenNets.size ? tokenTotalRows : ''}
-    <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border);">
-      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px;">By type</div>
-      ${typeBreakdown}
-    </div>
-  `;
-}
-
-// Lock in current staging as a trade
-document.getElementById('lock-trade-btn').addEventListener('click', () => {
-  if (tradeSelected.size === 0) return;
-  const name = document.getElementById('trade-name-input').value.trim();
-  const type = document.getElementById('trade-type-select').value;
-  lockedTrades.push({ id: ++tradeIdCounter, name, type, hashes: new Set(tradeSelected) });
-  tradeSelected.clear();
-  document.getElementById('trade-name-input').value = '';
-  document.getElementById('trade-type-select').value = 'trade';
-  document.querySelectorAll('.pt-select-cb').forEach(cb => cb.checked = false);
-  renderTradesSidebar();
-});
-
-document.getElementById('clear-trade-btn').addEventListener('click', () => {
-  tradeSelected.clear();
-  document.querySelectorAll('.pt-select-cb').forEach(cb => cb.checked = false);
-  renderTradesSidebar();
-});
-
-document.getElementById('trades-list').addEventListener('click', e => {
-  const removeBtn = e.target.closest('[data-remove-trade]');
-  if (removeBtn) {
-    const id = parseInt(removeBtn.dataset.removeTrade);
-    const idx = lockedTrades.findIndex(t => t.id === id);
-    if (idx !== -1) lockedTrades.splice(idx, 1);
-    renderTradesSidebar();
   }
-});
-
-// ── calcTxNet ──────────────────────────────────────────────────────
-function calcTxNet(tx) {
-  const myWalletAddrs = new Set(
-    [...labels.entries()].filter(([,v]) => v.name === 'My Wallet').map(([k]) => k)
-  );
-  let adaIn = 0, adaOut = 0;
-  const tokensIn  = new Map();
-  const tokensOut = new Map();
-  (tx.inputs || []).forEach(u => {
-    if (!myWalletAddrs.has(u.address)) return;
-    (u.amount || []).forEach(a => {
-      if (a.unit === 'lovelace') adaIn += parseInt(a.quantity);
-      else tokensIn.set(a.unit, (tokensIn.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
-    });
-  });
-  (tx.outputs || []).forEach(u => {
-    if (!myWalletAddrs.has(u.address)) return;
-    (u.amount || []).forEach(a => {
-      if (a.unit === 'lovelace') adaOut += parseInt(a.quantity);
-      else tokensOut.set(a.unit, (tokensOut.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
-    });
-  });
-  const adaNet = (adaOut - adaIn) / 1_000_000;
-  const tokenNet = new Map();
-  new Set([...tokensIn.keys(), ...tokensOut.keys()]).forEach(unit => {
-    const net = (tokensOut.get(unit) || 0) - (tokensIn.get(unit) || 0);
-    if (net !== 0) tokenNet.set(unit, net);
-  });
-  return { adaNet, tokenNet };
-}
-
-function utxoMiniRows(list) {
-  if (!list || !list.length) return '<span style="color:var(--muted);font-size:11px;">—</span>';
-  const myWalletAddrs = new Set(
-    [...labels.entries()].filter(([,v]) => v.name === 'My Wallet').map(([k]) => k)
-  );
-  return list.map(u => {
-    const isOwn  = myWalletAddrs.has(u.address);
-    const ada    = u.amount?.find(a => a.unit === 'lovelace');
-    const adaVal = ada ? fmt(parseInt(ada.quantity) / 1_000_000, 2) + ' ₳' : '';
-    const tokens = (u.amount || []).filter(a => a.unit !== 'lovelace');
-    const lbl    = labels.get(u.address);
-    const chip   = lbl ? `<span class="label-chip ${lbl.color}" style="font-size:9px;padding:1px 6px;">${escHtml(lbl.name)}</span>` : '';
-    const addrColor = isOwn ? 'var(--accent)' : 'var(--muted)';
-    const tokenStr  = tokens.map(t => {
-      const name = formatAssetName(t.unit.slice(56)) || 'null';
-      return `<span style="color:var(--amber);font-size:10px;">${fmt4sig(applyDecimals(t.quantity, t.unit))} ${escHtml(name)}</span>`;
-    }).join(' · ');
-    return `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border);">
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-        ${chip}
-        <span style="font-family:var(--mono);font-size:11px;color:${addrColor};">${u.address.slice(0,10)}…${u.address.slice(-6)}</span>
-        <span style="font-family:var(--mono);font-size:11px;color:var(--text);margin-left:auto;">${adaVal}</span>
+  list.innerHTML=lockedTrades.map(trade=>{
+    const {totalAdaNet,tokenNets}=calcTradeNet(trade.hashes);
+    const meta=TRADE_TYPE_META[trade.type]||TRADE_TYPE_META.other;
+    const c=totalAdaNet>=0?'var(--accent)':'var(--red)';
+    const txRows=[...trade.hashes].map(hash=>{
+      const tx=allTxs.find(t=>t.hash===hash); if(!tx) return '';
+      const {adaNet}=calcTxNet(tx);
+      const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+      const tc=adaNet>=0?'var(--accent)':'var(--red)';
+      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:3px;flex-wrap:wrap;">
+        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener" style="font-family:var(--mono);color:var(--blue);text-decoration:none;">${hash.slice(0,8)}…${hash.slice(-6)}</a>
+        <span style="color:var(--muted);">${date}</span>
+        <span style="font-family:var(--mono);color:${tc};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      </div>`;
+    }).join('');
+    const tokenRows=[...tokenNets.entries()].map(([unit,net])=>{
+      const name=formatAssetName(unit.slice(56))||'null';
+      const url=`https://adastat.net/tokens/${unit}`;
+      const tc=net>=0?'var(--accent)':'var(--red)';
+      const cost=net!==0&&totalAdaNet!==0?`<span style="color:var(--muted);font-size:10px;">${fmt(Math.abs(totalAdaNet/net),6)} ₳ each</span>`:'';
+      return `<div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;">
+        <span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span>
+        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a>${cost}
+      </div>`;
+    }).join('');
+    return `<div class="locked-trade" data-trade-id="${trade.id}" style="margin-bottom:0.75rem;padding-bottom:0.75rem;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="font-size:12px;font-weight:600;color:var(--text);">${escHtml(trade.name||'Trade '+trade.id)}</span>
+          <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:99px;background:${meta.bg};color:${meta.color};">${meta.label}</span>
+        </div>
+        <button data-remove-trade="${trade.id}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0;flex-shrink:0;">✕</button>
       </div>
-      ${tokenStr ? `<div style="margin-top:2px;">${tokenStr}</div>` : ''}
+      <div style="margin-bottom:6px;">${txRows}</div>
+      <div style="border-top:1px solid var(--border);padding-top:6px;">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${c};margin-bottom:4px;">${totalAdaNet>=0?'+':''}${fmt(totalAdaNet,4)} ₳</div>
+        ${tokenNets.size?`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Token Cost Basis</div>${tokenRows}`:''}
+      </div>
     </div>`;
   }).join('');
+
+  // totals
+  const totalsEl=document.getElementById('trades-totals');
+  if (!lockedTrades.length) { totalsEl.style.display='none'; return; }
+  let grandAdaNet=0; const grandTokenNets=new Map();
+  lockedTrades.forEach(trade=>{ const {totalAdaNet,tokenNets}=calcTradeNet(trade.hashes); grandAdaNet+=totalAdaNet; tokenNets.forEach((n,u)=>grandTokenNets.set(u,(grandTokenNets.get(u)||0)+n)); });
+  const gc=grandAdaNet>=0?'var(--accent)':'var(--red)';
+  const tokenTotalRows=[...grandTokenNets.entries()].map(([unit,net])=>{
+    const name=formatAssetName(unit.slice(56))||'null';
+    const url=`https://adastat.net/tokens/${unit}`;
+    const tc=net>=0?'var(--accent)':'var(--red)';
+    return `<div style="display:flex;align-items:baseline;gap:6px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;margin-top:3px;"><span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span><a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></div>`;
+  }).join('');
+  totalsEl.style.display='block';
+  totalsEl.innerHTML=`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Total across all trades</div>
+    <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${gc};margin-bottom:4px;">${grandAdaNet>=0?'+':''}${fmt(grandAdaNet,4)} ₳</div>
+    ${grandTokenNets.size?tokenTotalRows:''}`;
 }
 
-function renderTrades() {} // no-op
-
-document.getElementById('stake').addEventListener('keydown', e => {
-  if (e.key === 'Enter') fetchAccount();
+document.getElementById('lock-trade-btn').addEventListener('click', () => {
+  if (!tradeSelected.size) return;
+  lockedTrades.push({ id:++tradeIdCounter, name:document.getElementById('trade-name-input').value.trim(), type:document.getElementById('trade-type-select').value, hashes:new Set(tradeSelected) });
+  tradeSelected.clear();
+  document.getElementById('trade-name-input').value='';
+  document.getElementById('trade-type-select').value='trade';
+  renderTradesSidebar();
+});
+document.getElementById('clear-trade-btn').addEventListener('click', () => { tradeSelected.clear(); renderTradesSidebar(); });
+document.getElementById('trades-list').addEventListener('click', e => {
+  const btn=e.target.closest('[data-remove-trade]');
+  if (btn) { const idx=lockedTrades.findIndex(t=>t.id===parseInt(btn.dataset.removeTrade)); if(idx!==-1) lockedTrades.splice(idx,1); renderTradesSidebar(); }
 });
 
-// Make pnl-staging-panel sticky only while tx-log-row is in view
+// ── Event delegation ───────────────────────────────────────────────
+document.getElementById('stake').addEventListener('keydown', e => { if (e.key==='Enter') fetchAccount(); });
+document.addEventListener('keydown', e => { if (e.key==='Escape') closePnlPopup(); });
+
 const txLogRow = document.getElementById('tx-log-row');
 const stagingPanel = document.getElementById('pnl-staging-panel');
-const observer = new IntersectionObserver(entries => {
-  entries.forEach(entry => {
-    if (!entry.isIntersecting && pnlStaged.size > 0) {
-      stagingPanel.style.position = 'static';
-      stagingPanel.style.top = '';
-    } else if (entry.isIntersecting && pnlStaged.size > 0) {
-      stagingPanel.style.position = 'sticky';
-      stagingPanel.style.top = '1rem';
-    }
-  });
-}, { threshold: 0.01 });
-observer.observe(txLogRow);
+new IntersectionObserver(entries => entries.forEach(entry => {
+  if (pnlStaged.size) stagingPanel.style.position = entry.isIntersecting ? 'sticky' : 'static';
+}), { threshold: 0.01 }).observe(txLogRow);
 
-// Event delegation — catches clicks on any .utxo-addr, .trade-add-btn, .utxo-expand-btn
 document.getElementById('tx-body').addEventListener('click', e => {
-  const addr = e.target.closest('.utxo-addr');
-  if (addr) { openPopup(addr.dataset.addr); return; }
-
-  const starBtn = e.target.closest('.label-star-btn');
-  if (starBtn) { openPopup(starBtn.dataset.addr); return; }
-
   const pnlBtn = e.target.closest('[data-pnl-hash]');
   if (pnlBtn) { togglePnlStaged(pnlBtn.dataset.pnlHash); return; }
 
   const expandBtn = e.target.closest('.utxo-expand-btn');
   if (expandBtn) {
-    const expanded = expandBtn.dataset.expanded === 'true';
-    const hash = expandBtn.dataset.hash;
-    const side = expandBtn.dataset.side;
-    const tx   = allTxs.find(t => t.hash === hash);
+    const expanded = expandBtn.dataset.expanded==='true';
+    const tx = allTxs.find(t=>t.hash===expandBtn.dataset.hash);
     if (!tx) return;
-    const count = side === 'inputs' ? tx.inputs.length : tx.outputs.length;
-    const list = expandBtn.closest('.utxo-list');
-    list.querySelectorAll('.utxo-entry').forEach((el, i) => {
-      if (i >= COLLAPSE_THRESHOLD) el.classList.toggle('hidden', expanded);
-    });
+    const count = expandBtn.dataset.side==='inputs' ? tx.inputs.length : tx.outputs.length;
+    expandBtn.closest('.utxo-list').querySelectorAll('.utxo-entry').forEach((el,i)=>{ if(i>=COLLAPSE_THRESHOLD) el.classList.toggle('hidden',expanded); });
     expandBtn.dataset.expanded = !expanded;
-    expandBtn.textContent = expanded
-      ? `Show ${count - COLLAPSE_THRESHOLD} more ▾`
-      : `Show less ▴`;
+    expandBtn.textContent = expanded ? `Show ${count-COLLAPSE_THRESHOLD} more ▾` : 'Show less ▴';
   }
 });
 </script>
