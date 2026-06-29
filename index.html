@@ -1,4 +1,4 @@
-<!-- v4.2 -->
+<!-- v4.3 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -697,7 +697,13 @@ function utxoRows(list, txHash, side) {
     return `<div class="utxo-entry${hiddenClass}">
       <div class="utxo-top">${chipHtml}<span class="utxo-ada">${adaVal}</span></div>
       ${tokenRows(u.amount)}
-      <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <div class="utxo-addr" data-addr="${escHtml(addr)}">${escHtml(addr)}</div>
+        <button class="label-star-btn" data-addr="${escHtml(addr)}" title="Label this address"
+          style="background:none; border:none; cursor:pointer; font-size:13px; padding:0; flex-shrink:0; color:${labels.has(addr) ? 'var(--accent)' : 'var(--muted)'}; line-height:1;">
+          ${labels.has(addr) ? '★' : '☆'}
+        </button>
+      </div>
     </div>`;
   }).join('');
   const expandBtn = needsCollapse
@@ -1529,6 +1535,9 @@ observer.observe(txLogRow);
 document.getElementById('tx-body').addEventListener('click', e => {
   const addr = e.target.closest('.utxo-addr');
   if (addr) { openPopup(addr.dataset.addr); return; }
+
+  const starBtn = e.target.closest('.label-star-btn');
+  if (starBtn) { openPopup(starBtn.dataset.addr); return; }
 
   const pnlBtn = e.target.closest('[data-pnl-hash]');
   if (pnlBtn) { togglePnlStaged(pnlBtn.dataset.pnlHash); return; }
