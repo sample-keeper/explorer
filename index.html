@@ -1,4 +1,4 @@
-<!-- v4.1 -->
+<!-- v4.2 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -751,23 +751,39 @@ function renderTable() {
 
     const collat = collateralDetails(tx);
 
+    const utxoDetail = `<details style="margin-top:6px;">
+      <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none; letter-spacing:0.04em; list-style:none; display:flex; align-items:center; gap:4px;">
+        <span>▸ Inputs / Outputs</span>
+        <span style="color:var(--border2);">·</span>
+        <span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
+      </summary>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">
+        <div>
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Inputs</div>
+          ${utxoRows(tx.inputs, tx.hash, 'inputs')}
+        </div>
+        <div>
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Outputs</div>
+          ${utxoRows(tx.outputs, tx.hash, 'outputs')}
+        </div>
+      </div>
+      ${collat}
+    </details>`;
+
     return `<tr>
-      <td class="hash-cell col-hash" style="vertical-align:middle;">
+      <td class="hash-cell col-hash" style="vertical-align:top; padding-top:13px;">
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
           ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
         </a>
         <button class="trade-add-btn" data-pnl-hash="${tx.hash}" title="Add to Token P&L">+</button>
-        <button class="trade-add-btn${portfolio.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}"
-          title="${portfolio.has(tx.hash) ? 'Remove from starred' : 'Star transaction'}"
-          style="font-size:10px; margin-left:2px;">${portfolio.has(tx.hash) ? '★' : '☆'}</button>
       </td>
-      <td class="col-date" style="vertical-align:middle; font-size:12px; color:var(--muted);">${date}</td>
-      <td class="col-summary" style="vertical-align:middle;">
-        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+      <td class="col-date" style="vertical-align:top; padding-top:13px; font-size:12px; color:var(--muted);">${date}</td>
+      <td class="col-summary" style="vertical-align:top;">
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding-top:2px;">
           ${adaStr}
           ${tokenSummary}
         </div>
-        ${collat}
+        ${utxoDetail}
       </td>
     </tr>`;
   }).join('');
@@ -1186,17 +1202,7 @@ function togglePnlToken(unit) {
   if (body) body.classList.toggle('open');
 }
 
-// ── Starred txs (☆ button) — lightweight set for future use ────────
-const portfolio = new Set(); // just tracks starred hashes
-
-function togglePortfolio(hash) {
-  if (portfolio.has(hash)) portfolio.delete(hash);
-  else portfolio.add(hash);
-  // update button in table
-  renderTable();
-}
-
-function renderTrades() {} // no-op
+// ── Starred txs removed — portfolio Set no longer needed ────────────
 
 // ── Trades: locked trades list ─────────────────────────────────────
 // lockedTrades: [ { id, name, hashes: Set } ]
@@ -1526,9 +1532,6 @@ document.getElementById('tx-body').addEventListener('click', e => {
 
   const pnlBtn = e.target.closest('[data-pnl-hash]');
   if (pnlBtn) { togglePnlStaged(pnlBtn.dataset.pnlHash); return; }
-
-  const portfolioBtn = e.target.closest('[data-hash].trade-add-btn');
-  if (portfolioBtn) { togglePortfolio(portfolioBtn.dataset.hash); return; }
 
   const expandBtn = e.target.closest('.utxo-expand-btn');
   if (expandBtn) {
