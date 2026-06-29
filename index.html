@@ -1,4 +1,4 @@
-<!-- v4.4 -->
+<!-- v4.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -151,6 +151,18 @@
     <div class="field">
       <label>Stake address</label>
       <input id="stake" type="text" placeholder="stake1u..."/>
+    </div>
+    <div class="field">
+      <label>Transactions to load</label>
+      <select id="tx-limit" style="width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; padding:10px 14px; outline:none; cursor:pointer;">
+        <option value="25">25 most recent</option>
+        <option value="50" selected>50 most recent</option>
+        <option value="100">100 most recent</option>
+        <option value="200">200 most recent</option>
+        <option value="500">500 most recent</option>
+        <option value="all">All transactions</option>
+      </select>
+    </div>
     </div>
     <div class="search-row">
       <button class="btn" id="search-btn" onclick="fetchAccount()">
@@ -333,12 +345,16 @@ async function bf(path) {
 
 // Main search function. Fetches:
 //   1. Account info (ADA balance, rewards, pool)
-//   2. Last 100 transactions (then deduplicates and takes 50)
+//   2. Transactions up to the user-selected limit (or all)
 //   3. Payment addresses linked to this stake key (to identify our UTxOs)
 //   4. UTxO details for each transaction
 //   5. Token metadata (decimals) for all tokens encountered
 async function fetchAccount() {
-  const stake = document.getElementById('stake').value.trim();
+  const stake    = document.getElementById('stake').value.trim();
+  const limitVal = document.getElementById('tx-limit').value;
+  const fetchAll = limitVal === 'all';
+  const limit    = fetchAll ? Infinity : parseInt(limitVal);
+
   if (!stake) return setStatus('Enter a stake address.', true);
 
   document.getElementById('results').style.display = 'none';
@@ -346,22 +362,34 @@ async function fetchAccount() {
   setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
-    // Fire account info, transactions, and address list in parallel
-    const [acct, rawTxs, ownAddrs] = await Promise.all([
+    // Fire account info and address list immediately
+    const [acct, ownAddrs] = await Promise.all([
       bf(`/accounts/${stake}`),
-      bf(`/accounts/${stake}/transactions?count=100&page=1&order=desc`),
       bf(`/accounts/${stake}/addresses?count=100`).catch(() => []),
     ]);
 
     // Store addresses so we can identify our own UTxOs when calculating gains/losses
     myAddresses = new Set(ownAddrs.map(a => a.address));
 
+    // Fetch transactions page by page until we hit the limit or run out
+    let allRawTxs = [];
+    let page      = 1;
+    while (true) {
+      const batch = await bf(`/accounts/${stake}/transactions?count=100&page=${page}&order=desc`);
+      allRawTxs = allRawTxs.concat(batch);
+      setStatus(`<span class="spinner"></span> Loading transactions… ${allRawTxs.length} fetched`);
+      // Stop if we've reached the limit or there are no more pages
+      if (batch.length < 100) break;
+      if (!fetchAll && allRawTxs.length >= limit) break;
+      page++;
+    }
+
     // Deduplicate (Blockfrost can return a tx multiple times if it touches
-    // multiple addresses belonging to the same stake key), then cap at 50
+    // multiple addresses belonging to the same stake key), then cap at limit
     const seen   = new Set();
-    const txList = rawTxs
+    const txList = allRawTxs
       .filter(t => { if (seen.has(t.tx_hash)) return false; seen.add(t.tx_hash); return true; })
-      .slice(0, 50);
+      .slice(0, fetchAll ? Infinity : limit);
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
