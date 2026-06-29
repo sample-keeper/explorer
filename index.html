@@ -1,4 +1,4 @@
-<!-- v3.7 -->
+<!-- v3.8 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -373,22 +373,12 @@
       <div id="trades-list"></div>
       <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
     </div>
-    <div id="pnl-staging-panel" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">Selected for P&amp;L</span>
-        <div style="display:flex; gap:6px;">
-          <button id="pnl-assign-btn" class="btn" style="padding:5px 12px; font-size:12px;">Assign to token →</button>
-          <button id="pnl-clear-btn" class="btn btn-ghost" style="padding:5px 10px; font-size:12px;">Clear</button>
-        </div>
-      </div>
-      <div id="pnl-staging-list" style="display:flex; flex-direction:column; gap:4px;"></div>
-    </div>
     <div id="token-pnl-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; margin-bottom:1rem;">
       <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Token P&amp;L</div>
       <div id="token-pnl-list"></div>
       <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
     </div>
-    <div style="display:flex; gap:1rem; align-items:flex-start;">
+    <div id="tx-log-row" style="display:flex; gap:1rem; align-items:flex-start;">
       <div style="display:flex; flex-direction:column; gap:1rem; flex-shrink:0; width:220px;">
         <div id="labels-sidebar" style="display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
           <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:0.75rem;">Labels</div>
@@ -408,6 +398,14 @@
             <tbody id="tx-body"></tbody>
           </table>
         </div>
+      </div>
+      <div id="pnl-staging-panel" style="display:none; flex-shrink:0; width:220px; position:sticky; top:1rem; align-self:flex-start; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; gap:4px;">
+          <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">P&amp;L Selection</span>
+          <button id="pnl-clear-btn" class="btn btn-ghost" style="padding:3px 8px; font-size:11px;">Clear</button>
+        </div>
+        <div id="pnl-staging-list" style="display:flex; flex-direction:column; gap:4px; margin-bottom:0.75rem;"></div>
+        <button id="pnl-assign-btn" class="btn" style="width:100%; padding:7px; font-size:12px;">Assign to token →</button>
       </div>
     </div>
     <div class="pagination" id="pagination"></div>
@@ -850,7 +848,11 @@ function togglePnlStaged(hash) {
 function renderPnlStaging() {
   const panel   = document.getElementById('pnl-staging-panel');
   const listEl  = document.getElementById('pnl-staging-list');
-  if (pnlStaged.size === 0) { panel.style.display = 'none'; return; }
+
+  if (pnlStaged.size === 0) {
+    panel.style.display = 'none';
+    return;
+  }
   panel.style.display = 'block';
 
   listEl.innerHTML = [...pnlStaged].map(hash => {
@@ -858,14 +860,17 @@ function renderPnlStaging() {
     if (!tx) return '';
     const { adaNet } = calcTxNet(tx);
     const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    const short = hash.slice(0,10) + '…' + hash.slice(-6);
+    const short = hash.slice(0,8) + '…' + hash.slice(-6);
     const c     = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
-    return `<div style="display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--border); font-size:11px;">
-      <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener"
-         style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${short}</a>
-      <span style="color:var(--muted);">${date}</span>
-      <span style="font-family:var(--mono); color:${c}; margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
-      <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
+    return `<div style="padding:4px 0; border-bottom:1px solid var(--border); font-size:11px;">
+      <div style="display:flex; align-items:center; gap:4px;">
+        <span style="font-family:var(--mono); color:var(--blue); font-size:10.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${short}</span>
+        <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;flex-shrink:0;">✕</button>
+      </div>
+      <div style="display:flex; justify-content:space-between; margin-top:2px;">
+        <span style="color:var(--muted); font-size:10px;">${date}</span>
+        <span style="font-family:var(--mono); font-size:10.5px; color:${c};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      </div>
     </div>`;
   }).join('');
 
@@ -1760,6 +1765,22 @@ function renderTrades() {} // no-op, kept to avoid errors
 document.getElementById('stake').addEventListener('keydown', e => {
   if (e.key === 'Enter') fetchAccount();
 });
+
+// Make pnl-staging-panel sticky only while tx-log-row is in view
+const txLogRow = document.getElementById('tx-log-row');
+const stagingPanel = document.getElementById('pnl-staging-panel');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting && pnlStaged.size > 0) {
+      stagingPanel.style.position = 'static';
+      stagingPanel.style.top = '';
+    } else if (entry.isIntersecting && pnlStaged.size > 0) {
+      stagingPanel.style.position = 'sticky';
+      stagingPanel.style.top = '1rem';
+    }
+  });
+}, { threshold: 0.01 });
+observer.observe(txLogRow);
 
 // Event delegation — catches clicks on any .utxo-addr, .trade-add-btn, .utxo-expand-btn
 document.getElementById('tx-body').addEventListener('click', e => {
