@@ -1,4 +1,4 @@
-<!-- v3.6 -->
+<!-- v3.7 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1139,6 +1139,8 @@ function scrollToTx(hash) {
     setTimeout(() => { row.style.background = ''; }, 1800);
   });
 }
+
+function pnlSummaryHTML(unit, txs, roles) {
   let adaPaid = 0, adaReceived = 0, tokensBought = 0, tokensSold = 0;
   txs.forEach(t => {
     const role = roles.get(t.hash) || 'none';
