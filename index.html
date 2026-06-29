@@ -1,4 +1,4 @@
-<!-- v4.7 -->
+<!-- v4.9 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,6 +34,53 @@
     .field input { width:100%; background:var(--bg); border:1px solid var(--border2); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; padding:10px 14px; outline:none; transition:border-color 0.15s; }
     .field input:focus { border-color:var(--accent); }
     .field input::placeholder { color:var(--muted); }
+
+    /* Panel accent borders for visual hierarchy */
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:1rem; overflow:hidden; }
+    .panel-blue   { border-left:3px solid var(--blue); }
+    .panel-amber  { border-left:3px solid var(--amber); }
+    .panel-accent { border-left:3px solid var(--accent); }
+    .panel-muted  { border-left:3px solid var(--muted); }
+
+    /* Sticky panel headers */
+    .panel-header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0.75rem 1rem; cursor:pointer; user-select:none;
+      background:var(--surface); position:sticky; top:0; z-index:10;
+      border-bottom:1px solid var(--border);
+    }
+    .panel-header:hover { background:var(--surface2); }
+    .panel-header-left { display:flex; align-items:center; gap:8px; }
+    .panel-header-title { font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); }
+    .panel-header-chevron { font-size:11px; color:var(--muted); transition:transform 0.2s; }
+    .panel-header-chevron.open { transform:rotate(90deg); }
+    .panel-body { padding:1rem; display:none; }
+    .panel-body.open { display:block; }
+
+    /* Loading skeleton */
+    .skeleton-row td { padding:12px 14px; }
+    .skeleton-bar { height:12px; border-radius:4px; background:linear-gradient(90deg,var(--surface2) 25%,var(--surface) 50%,var(--surface2) 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* Timeline */
+    #timeline-wrap { margin-bottom:1rem; }
+    #timeline-svg { width:100%; cursor:crosshair; }
+    .timeline-bar { transition:opacity 0.1s; }
+    .timeline-bar:hover { opacity:0.7; }
+    #timeline-tooltip {
+      position:fixed; background:var(--surface); border:1px solid var(--border2);
+      border-radius:8px; padding:6px 10px; font-size:11px; pointer-events:none;
+      z-index:200; display:none; max-width:220px;
+    }
+
+    /* Date range badge */
+    #date-range { font-size:11px; color:var(--muted); margin-left:8px; }
+
+    /* P&L staging — always visible when results shown */
+    #pnl-staging-panel { flex-shrink:0; width:200px; position:sticky; top:1rem; align-self:flex-start; background:var(--surface); border:1px solid var(--border); border-radius:12px; border-left:3px solid var(--accent); overflow:hidden; }
+    .staging-header { display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; border-bottom:1px solid var(--border); }
+    .staging-count { font-size:10px; font-weight:600; background:var(--accent-dim); color:var(--accent); padding:2px 7px; border-radius:99px; }
+    #pnl-staging-list { padding:0.5rem 0.75rem; min-height:32px; display:flex; flex-direction:column; gap:4px; }
 
     /* Buttons */
     .btn { display:inline-flex; align-items:center; gap:6px; background:var(--accent); color:#051510; font-size:14px; font-weight:600; border:none; border-radius:8px; padding:10px 20px; cursor:pointer; transition:opacity 0.15s; flex-shrink:0; }
@@ -177,40 +224,75 @@
   <div id="results">
     <div class="meta-grid" id="meta-grid"></div>
 
+    <!-- Timeline -->
+    <div class="panel panel-accent" id="timeline-panel">
+      <div class="panel-header" onclick="togglePanel('timeline-body','timeline-chevron')">
+        <div class="panel-header-left">
+          <span class="panel-header-chevron open" id="timeline-chevron">▶</span>
+          <span class="panel-header-title">Transaction Timeline</span>
+          <span id="date-range"></span>
+        </div>
+      </div>
+      <div class="panel-body open" id="timeline-body">
+        <div id="timeline-wrap"><canvas id="timeline-canvas" height="110" style="width:100%;cursor:crosshair;display:block;"></canvas></div>
+        <div id="timeline-tooltip"></div>
+      </div>
+    </div>
+
     <!-- Token P&L -->
-    <div id="token-pnl-sidebar" class="card" style="display:none;">
-      <div class="card-title">Token P&L</div>
-      <div id="token-pnl-list"></div>
-      <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
+    <div class="panel panel-amber" id="token-pnl-sidebar" style="display:none;">
+      <div class="panel-header" onclick="togglePanel('pnl-panel-body','pnl-chevron')">
+        <div class="panel-header-left">
+          <span class="panel-header-chevron open" id="pnl-chevron">▶</span>
+          <span class="panel-header-title">Token P&L</span>
+        </div>
+        <div style="display:flex;gap:6px;" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm" onclick="expandAllPnl(true)">Expand all</button>
+          <button class="btn btn-ghost btn-sm" onclick="expandAllPnl(false)">Collapse all</button>
+        </div>
+      </div>
+      <div class="panel-body open" id="pnl-panel-body">
+        <div id="token-pnl-list"></div>
+        <div id="token-pnl-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);"></div>
+      </div>
     </div>
 
     <!-- Trades -->
-    <div id="trades-sidebar" class="card" style="display:none;">
-      <div class="card-title">Trades</div>
-      <div id="trade-staging" style="background:var(--surface2); border-radius:8px; padding:10px; margin-bottom:10px; display:none;">
-        <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade</div>
-        <div id="staging-list"></div>
-        <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-          <input id="trade-name-input" type="text" placeholder="Trade name (optional)" style="flex:1; min-width:120px; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;"/>
-          <select id="trade-type-select" style="background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none; cursor:pointer;">
-            <option value="trade">Token trade</option>
-            <option value="bought_ada">Bought ADA with USD</option>
-            <option value="interest">Interest earned</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div style="display:flex; gap:6px; margin-top:6px;">
-          <button id="lock-trade-btn" class="btn btn-sm">Lock in</button>
-          <button id="clear-trade-btn" class="btn btn-ghost btn-sm">Clear</button>
+    <div class="panel panel-blue" id="trades-sidebar" style="display:none;">
+      <div class="panel-header" onclick="togglePanel('trades-panel-body','trades-chevron')">
+        <div class="panel-header-left">
+          <span class="panel-header-chevron open" id="trades-chevron">▶</span>
+          <span class="panel-header-title">Trades</span>
         </div>
       </div>
-      <div id="trades-list"></div>
-      <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
+      <div class="panel-body open" id="trades-panel-body">
+        <div id="trade-staging" style="background:var(--surface2); border-radius:8px; padding:10px; margin-bottom:10px; display:none;">
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">New trade</div>
+          <div id="staging-list"></div>
+          <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+            <input id="trade-name-input" type="text" placeholder="Trade name (optional)" style="flex:1; min-width:120px; background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none;"/>
+            <select id="trade-type-select" style="background:var(--bg); border:1px solid var(--border2); border-radius:6px; color:var(--text); font-size:12px; padding:5px 8px; outline:none; cursor:pointer;">
+              <option value="trade">Token trade</option>
+              <option value="bought_ada">Bought ADA with USD</option>
+              <option value="interest">Interest earned</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button id="lock-trade-btn" class="btn btn-sm">Lock in</button>
+            <button id="clear-trade-btn" class="btn btn-ghost btn-sm">Clear</button>
+          </div>
+        </div>
+        <div id="trades-list"></div>
+        <div id="trades-totals" style="display:none; margin-top:0.75rem; padding-top:0.75rem; border-top:2px solid var(--border2); border-radius:8px; background:var(--surface2); padding:10px;"></div>
+      </div>
     </div>
 
     <!-- Transaction Log -->
     <div class="section-header">
-      <h3 id="tx-count-label">Transaction Log</h3>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <h3 id="tx-count-label">Transaction Log</h3>
+      </div>
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Export CSV
@@ -231,14 +313,17 @@
           </table>
         </div>
       </div>
-      <!-- P&L staging panel -->
-      <div id="pnl-staging-panel" style="display:none; flex-shrink:0; width:220px; position:sticky; top:1rem; align-self:flex-start; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; gap:4px;">
-          <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">P&L Selection</span>
-          <button id="pnl-clear-btn" class="btn btn-ghost btn-sm">Clear</button>
+      <!-- P&L staging panel — always visible -->
+      <div id="pnl-staging-panel">
+        <div class="staging-header">
+          <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted);">P&L</span>
+          <span class="staging-count" id="staging-count">0 selected</span>
         </div>
-        <div id="pnl-staging-list" style="display:flex; flex-direction:column; gap:4px; margin-bottom:0.75rem;"></div>
-        <button id="pnl-assign-btn" class="btn" style="width:100%; padding:7px; font-size:12px;">Assign to token →</button>
+        <div id="pnl-staging-list"></div>
+        <div style="padding:0.5rem 0.75rem; border-top:1px solid var(--border); display:flex; gap:6px; flex-direction:column;">
+          <button id="pnl-assign-btn" class="btn btn-sm" style="width:100%;">Assign to token →</button>
+          <button id="pnl-clear-btn" class="btn btn-ghost btn-sm" style="width:100%;">Clear</button>
+        </div>
       </div>
     </div>
     <div class="pagination" id="pagination"></div>
@@ -393,25 +478,20 @@ async function fetchAccount() {
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
 
-    // Fetch in chunks of 10 with a small delay between batches to avoid
-    // hitting Blockfrost's rate limit (429 Too Many Requests)
+    // Fetch UTxOs in chunks of 10 with 100ms between batches.
+    // We no longer fetch /txs/{hash} details since fees aren't displayed.
+    // This halves the number of API calls needed.
     const CHUNK_SIZE  = 10;
-    const CHUNK_DELAY = 200; // ms between batches
+    const CHUNK_DELAY = 100; // ms — stays within Blockfrost's 10 req/s limit
 
-    async function fetchChunked(items, fetcher) {
-      const results = [];
-      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-        if (i > 0) await new Promise(r => setTimeout(r, CHUNK_DELAY));
-        const chunk = items.slice(i, i + CHUNK_SIZE);
-        const batch = await Promise.all(chunk.map(fetcher));
-        results.push(...batch);
-        setStatus(`<span class="spinner"></span> Fetching UTxOs… ${Math.min(i + CHUNK_SIZE, items.length)} / ${items.length}`);
-      }
-      return results;
+    const utxos = [];
+    for (let i = 0; i < txList.length; i += CHUNK_SIZE) {
+      if (i > 0) await new Promise(r => setTimeout(r, CHUNK_DELAY));
+      const chunk = txList.slice(i, i + CHUNK_SIZE);
+      const batch = await Promise.all(chunk.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null)));
+      utxos.push(...batch);
+      setStatus(`<span class="spinner"></span> Fetching UTxOs… ${Math.min(i + CHUNK_SIZE, txList.length)} / ${txList.length}`);
     }
-
-    const details = await fetchChunked(txList, t => bf(`/txs/${t.tx_hash}`).catch(() => null));
-    const utxos   = await fetchChunked(txList, t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null));
 
     // Build the allTxs array, separating spending inputs/outputs from
     // collateral inputs (smart contract insurance) and reference inputs (read-only data)
@@ -421,7 +501,6 @@ async function fetchAccount() {
         hash:              t.tx_hash,
         time:              t.block_time,
         block:             t.block_height,
-        fees:              details[i]?.fees || 0,
         inputs:            u ? u.inputs.filter(x => !x.collateral && !x.reference) : [],
         outputs:           u ? u.outputs.filter(x => !x.collateral) : [],
         collateralInputs:  u ? u.inputs.filter(x => x.collateral)  : [],
@@ -465,16 +544,170 @@ async function fetchAccount() {
 
     renderMeta(acct, txList.length);
     currentPage = 1;
+    document.getElementById('results').style.display = 'block';
+    showSkeleton();
     renderTable();
+    renderTimeline();
+    renderDateRange();
     buildTokenPnl();
     setStatus('');
-    document.getElementById('results').style.display = 'block';
 
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
     document.getElementById('search-btn').disabled = false;
   }
+}
+
+// =================================================================
+// PANEL TOGGLE (sticky collapsible panels)
+// =================================================================
+
+function togglePanel(bodyId, chevronId) {
+  const body    = document.getElementById(bodyId);
+  const chevron = document.getElementById(chevronId);
+  if (!body) return;
+  body.classList.toggle('open');
+  if (chevron) chevron.classList.toggle('open', body.classList.contains('open'));
+}
+
+// Expand or collapse all token sections in the P&L panel
+function expandAllPnl(open) {
+  document.querySelectorAll('.pnl-token-body').forEach(el => {
+    el.classList.toggle('open', open);
+  });
+}
+
+// =================================================================
+// LOADING SKELETON
+// Show placeholder rows while data is loading
+// =================================================================
+
+function showSkeleton(rows = 8) {
+  const widths = ['60%', '40%', '80%', '55%', '70%', '45%', '65%', '50%'];
+  document.getElementById('tx-body').innerHTML = Array.from({ length: rows }, (_, i) => `
+    <tr class="skeleton-row">
+      <td><div class="skeleton-bar" style="width:80%;"></div></td>
+      <td><div class="skeleton-bar" style="width:60%;"></div></td>
+      <td><div class="skeleton-bar" style="width:${widths[i % widths.length]};"></div></td>
+    </tr>`).join('');
+}
+
+// =================================================================
+// TIMELINE
+// Canvas bar chart — one bar per transaction ordered oldest→newest.
+// Green bars = ADA received, red = ADA sent.
+// Clicking a bar scrolls to that tx in the transaction log.
+// =================================================================
+
+function renderTimeline() {
+  const canvas = document.getElementById('timeline-canvas');
+  if (!canvas || !allTxs.length) return;
+
+  const dpr  = window.devicePixelRatio || 1;
+  const W    = canvas.parentElement.clientWidth;
+  const H    = 110;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // allTxs is newest-first; reverse for chronological display
+  const txs = [...allTxs].reverse();
+
+  // Calculate ADA net for each tx
+  const nets = txs.map(tx => calcTxNet(tx).adaNet);
+  const maxAbs = Math.max(...nets.map(Math.abs), 0.01);
+
+  const PAD   = { top: 10, bottom: 24, left: 4, right: 4 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const midY   = PAD.top + chartH / 2;
+  const barW   = Math.max(2, Math.floor(chartW / txs.length) - 1);
+
+  // Background
+  ctx.fillStyle = '#131929';
+  ctx.fillRect(0, 0, W, H);
+
+  // Zero line
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, midY);
+  ctx.lineTo(W - PAD.right, midY);
+  ctx.stroke();
+
+  // Bars
+  txs.forEach((tx, i) => {
+    const net  = nets[i];
+    const x    = PAD.left + i * (chartW / txs.length);
+    const pct  = Math.min(Math.abs(net) / maxAbs, 1);
+    const barH = Math.max(2, pct * (chartH / 2));
+    const y    = net >= 0 ? midY - barH : midY;
+    ctx.fillStyle = net >= 0 ? '#0cd9a0' : '#f87171';
+    ctx.fillRect(x, y, barW, barH);
+  });
+
+  // X-axis date labels (first, middle, last)
+  const labelIdxs = [0, Math.floor(txs.length / 2), txs.length - 1];
+  ctx.fillStyle = '#7b859e';
+  ctx.font = `10px -apple-system,sans-serif`;
+  labelIdxs.forEach(i => {
+    if (i >= txs.length) return;
+    const dateStr = new Date(txs[i].time * 1000).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    const x = PAD.left + i * (chartW / txs.length);
+    const align = i === 0 ? 'left' : i === txs.length - 1 ? 'right' : 'center';
+    ctx.textAlign = align;
+    ctx.fillText(dateStr, x + barW / 2, H - 6);
+  });
+
+  // Tooltip and click handling
+  const tooltip = document.getElementById('timeline-tooltip');
+
+  function txAtX(mouseX) {
+    const rect = canvas.getBoundingClientRect();
+    const relX  = mouseX - rect.left - PAD.left;
+    const idx   = Math.floor(relX / (chartW / txs.length));
+    return txs[Math.max(0, Math.min(idx, txs.length - 1))];
+  }
+
+  canvas.onmousemove = e => {
+    const tx   = txAtX(e.clientX);
+    const { adaNet } = calcTxNet(tx);
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const color = adaNet >= 0 ? '#0cd9a0' : '#f87171';
+    tooltip.style.display = 'block';
+    tooltip.style.left    = (e.clientX + 12) + 'px';
+    tooltip.style.top     = (e.clientY - 32) + 'px';
+    tooltip.innerHTML     = `<span style="color:var(--muted);">${date}</span><br><span style="font-family:var(--mono);color:${color};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>`;
+  };
+  canvas.onmouseleave = () => { tooltip.style.display = 'none'; };
+  canvas.onclick = e => {
+    const tx = txAtX(e.clientX);
+    scrollToTx(tx.hash);
+  };
+}
+
+// Show the date range covered by the loaded transactions
+function renderDateRange() {
+  if (!allTxs.length) return;
+  const oldest = new Date(allTxs[allTxs.length - 1].time * 1000);
+  const newest = new Date(allTxs[0].time * 1000);
+  const fmt2   = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  document.getElementById('date-range').textContent = `${fmt2(oldest)} – ${fmt2(newest)}`;
+  document.getElementById('tx-count-label').textContent =
+    `Transaction Log — ${allTxs.length} transactions`;
+}
+
+// Update persistent P&L staging count badge
+function updateStagingCount() {
+  const el = document.getElementById('staging-count');
+  if (el) el.textContent = pnlStaged.size === 0
+    ? '0 selected'
+    : `${pnlStaged.size} selected`;
 }
 
 // =================================================================
@@ -760,11 +993,13 @@ function togglePnlStaged(hash) {
 }
 
 function renderPnlStaging() {
-  const panel  = document.getElementById('pnl-staging-panel');
   const listEl = document.getElementById('pnl-staging-list');
+  updateStagingCount();
 
-  if (!pnlStaged.size) { panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
+  if (!pnlStaged.size) {
+    listEl.innerHTML = '<span style="font-size:11px; color:var(--muted); padding:4px 0; display:block;">Click + on any transaction to stage it for P&L assignment.</span>';
+    return;
+  }
 
   listEl.innerHTML = [...pnlStaged].map(hash => {
     const tx = allTxs.find(t => t.hash === hash);
@@ -791,7 +1026,7 @@ function renderPnlStaging() {
 }
 
 document.getElementById('pnl-clear-btn').addEventListener('click', () => {
-  // Remove all staged txs and reset their + buttons
+  // Reset all + buttons in the table
   [...pnlStaged].forEach(h => {
     const b = document.querySelector(`[data-pnl-hash="${h}"]`);
     if (b) { b.textContent = '+'; b.classList.remove('active'); }
@@ -1311,17 +1546,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closePnlPopup();
 });
 
-// Keep the P&L staging panel sticky while the transaction table is on screen.
-// Uses IntersectionObserver to detect when the table scrolls out of view.
-const txLogRow     = document.getElementById('tx-log-row');
-const stagingPanel = document.getElementById('pnl-staging-panel');
-new IntersectionObserver(entries => {
-  entries.forEach(entry => {
-    if (pnlStaged.size) {
-      stagingPanel.style.position = entry.isIntersecting ? 'sticky' : 'static';
-    }
-  });
-}, { threshold: 0.01 }).observe(txLogRow);
+// Re-draw timeline on window resize
+window.addEventListener('resize', () => { if (allTxs.length) renderTimeline(); });
+
+// Show the staging hint on page load
+renderPnlStaging();
 
 // Single delegated listener for all clicks inside the transaction table body
 document.getElementById('tx-body').addEventListener('click', e => {
