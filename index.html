@@ -1,4 +1,4 @@
-<!-- v3.5 -->
+<!-- v3.6 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1006,15 +1006,18 @@ function pnlEntryFromTx(tx) {
 }
 
 function buildTokenPnl() {
-  // seed from allTxs — add any token-touching txs not already present
+  // seed from allTxs — add token-touching txs, auto-assign gains as buy
   allTxs.forEach(tx => {
-    const { tokenNet } = calcTxNet(tx);
+    const { adaNet, tokenNet } = calcTxNet(tx);
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     tokenNet.forEach((tNet, unit) => {
       if (!pnlTokenTxs.has(unit)) pnlTokenTxs.set(unit, new Map());
+      if (!pnlRoles.has(unit))    pnlRoles.set(unit, new Map());
       if (!pnlTokenTxs.get(unit).has(tx.hash)) {
-        const entry = pnlEntryFromTx(tx);
-        entry.tokenNet = tNet;
-        pnlTokenTxs.get(unit).set(tx.hash, entry);
+        pnlTokenTxs.get(unit).set(tx.hash, { hash: tx.hash, date, tokenNet: tNet, adaNet });
+        // auto-assign: token gain = buy, token loss = sell
+        if (tNet > 0) pnlRoles.get(unit).set(tx.hash, 'buy');
+        else if (tNet < 0) pnlRoles.get(unit).set(tx.hash, 'sell');
       }
     });
   });
@@ -1066,8 +1069,8 @@ function renderTokenPnl() {
           <option value="buy"  ${role==='buy' ?'selected':''}>Buy</option>
           <option value="sell" ${role==='sell'?'selected':''}>Sell</option>
         </select>
-        <a href="https://cardanoscan.io/transaction/${t.hash}" target="_blank" rel="noopener"
-           style="font-family:var(--mono); color:var(--blue); text-decoration:none; font-size:10.5px;">${short}</a>
+        <span class="pnl-tx-link" data-hash="${t.hash}"
+           style="font-family:var(--mono); color:var(--blue); text-decoration:underline; font-size:10.5px; cursor:pointer;">${short}</span>
         <span style="color:var(--muted); font-size:10.5px; white-space:nowrap;">${t.date}</span>
         <span style="font-family:var(--mono); color:${tColor}; font-size:11px;">${tknStr}</span>
         <span style="font-family:var(--mono); color:${adaColor}; font-size:11px;">${t.adaNet >= 0?'+':''}${fmt(t.adaNet,4)} ₳</span>
@@ -1110,9 +1113,32 @@ function renderTokenPnl() {
       renderPnlTotals();
     });
   });
+  // attach pnl-tx-link click — scroll to tx in table
+  list.querySelectorAll('.pnl-tx-link').forEach(el => {
+    el.addEventListener('click', () => scrollToTx(el.dataset.hash));
+  });
 }
 
-function pnlSummaryHTML(unit, txs, roles) {
+function scrollToTx(hash) {
+  // find which page the tx is on
+  const idx = allTxs.findIndex(t => t.hash === hash);
+  if (idx === -1) return;
+  const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+  if (targetPage !== currentPage) {
+    currentPage = targetPage;
+    renderTable();
+  }
+  // wait for render then scroll and highlight
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`tr [data-pnl-hash="${hash}"]`)?.closest('tr')
+             || document.querySelector(`tr [data-hash="${hash}"]`)?.closest('tr');
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.style.transition = 'background 0.2s';
+    row.style.background = 'rgba(12,217,160,0.12)';
+    setTimeout(() => { row.style.background = ''; }, 1800);
+  });
+}
   let adaPaid = 0, adaReceived = 0, tokensBought = 0, tokensSold = 0;
   txs.forEach(t => {
     const role = roles.get(t.hash) || 'none';
