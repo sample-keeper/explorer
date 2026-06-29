@@ -238,70 +238,141 @@
 </footer>
 
 <script>
+// =================================================================
+// CONFIGURATION
+// =================================================================
 const BASE    = 'https://cardano-mainnet.blockfrost.io/api/v0';
 const API_KEY = 'mainnettuskMeFpliyx52DukVDywVSJ9e5kUCqb';
 
-let allTxs      = [];
-let currentPage = 1;
-const PAGE_SIZE = 25;
-const COLLAPSE_THRESHOLD = 5;
+// =================================================================
+// APP STATE
+// =================================================================
+let allTxs       = [];          // all fetched transactions
+let currentPage  = 1;           // current page in the transaction log
+let myAddresses  = new Set();   // payment addresses belonging to the searched stake key
 
-// own addresses fetched from stake key
-let myAddresses = new Set();
+const PAGE_SIZE          = 25;  // transactions per page
+const COLLAPSE_THRESHOLD = 5;   // max UTxO entries shown before "show more"
 
-// token decimals cache
+// Cache of token decimals to avoid re-fetching: unit -> number
 const tokenDecimals = new Map();
 
-// ── Helpers ────────────────────────────────────────────────────────
-function lovelace(l) { return parseInt(l || 0) / 1_000_000; }
-function fmt(n, dec = 2) { return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+// =================================================================
+// UTILITY FUNCTIONS
+// =================================================================
+
+// Convert lovelace integer to ADA float
+function lovelace(l) {
+  return parseInt(l || 0) / 1_000_000;
+}
+
+// Format a number to fixed decimal places (e.g. 1234.5678 -> "1,234.57")
+function fmt(n, dec = 2) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+// Format a number to 4 significant figures with k/m/b/t suffix
+// e.g. 1500000 -> "1.5m", 999 -> "999", 12345 -> "12.35k"
 function fmt4sig(n) {
   if (n === 0) return '0';
-  const abs = Math.abs(n), sign = n < 0 ? '-' : '';
-  for (const [div, sfx] of [[1e12,'t'],[1e9,'b'],[1e6,'m'],[1e3,'k'],[1,'']]) {
-    if (abs >= div) return sign + parseFloat((abs/div).toPrecision(4)).toString() + sfx;
+  const abs  = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  for (const [div, suffix] of [[1e12,'t'],[1e9,'b'],[1e6,'m'],[1e3,'k'],[1,'']]) {
+    if (abs >= div) return sign + parseFloat((abs / div).toPrecision(4)).toString() + suffix;
   }
   return String(n);
 }
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function applyDecimals(qty, unit) { const d = tokenDecimals.get(unit) ?? 0; return parseInt(qty) / Math.pow(10, d); }
+
+// Escape HTML special characters to prevent XSS in rendered strings
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Divide a raw token quantity by its decimal factor
+// e.g. 1000000 with 6 decimals -> 1.0
+function applyDecimals(qty, unit) {
+  const decimals = tokenDecimals.get(unit) ?? 0;
+  return parseInt(qty) / Math.pow(10, decimals);
+}
+
+// Decode a hex-encoded asset name to a human-readable string.
+// Returns 'null' if the name contains non-printable characters.
 function formatAssetName(hex) {
-  try { const s = hex.match(/.{1,2}/g).map(b=>parseInt(b,16)); const str = String.fromCharCode(...s); if (/^[\x20-\x7E]+$/.test(str)) return str; } catch {}
+  try {
+    const bytes = hex.match(/.{1,2}/g).map(b => parseInt(b, 16));
+    const str   = String.fromCharCode(...bytes);
+    if (/^[\x20-\x7E]+$/.test(str)) return str;
+  } catch {}
   return 'null';
 }
-function setStatus(msg, isErr) { const el = document.getElementById('status'); el.innerHTML = msg; el.className = isErr ? 'error' : ''; }
 
-// ── Blockfrost ─────────────────────────────────────────────────────
-async function bf(path) {
-  const r = await fetch(BASE + path, { headers: { project_id: API_KEY } });
-  if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.message || `HTTP ${r.status}`); }
-  return r.json();
+// Update the status message below the search box
+function setStatus(msg, isErr = false) {
+  const el      = document.getElementById('status');
+  el.innerHTML  = msg;
+  el.className  = isErr ? 'error' : '';
 }
 
+// =================================================================
+// BLOCKFROST API
+// =================================================================
+
+// Generic Blockfrost fetch — returns parsed JSON or throws a descriptive error
+async function bf(path) {
+  const res = await fetch(BASE + path, { headers: { project_id: API_KEY } });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json.message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// Main search function. Fetches:
+//   1. Account info (ADA balance, rewards, pool)
+//   2. Last 100 transactions (then deduplicates and takes 50)
+//   3. Payment addresses linked to this stake key (to identify our UTxOs)
+//   4. UTxO details for each transaction
+//   5. Token metadata (decimals) for all tokens encountered
 async function fetchAccount() {
   const stake = document.getElementById('stake').value.trim();
   if (!stake) return setStatus('Enter a stake address.', true);
+
   document.getElementById('results').style.display = 'none';
-  document.getElementById('search-btn').disabled = true;
+  document.getElementById('search-btn').disabled   = true;
   setStatus('<span class="spinner"></span> Fetching account…');
+
   try {
+    // Fire account info, transactions, and address list in parallel
     const [acct, rawTxs, ownAddrs] = await Promise.all([
       bf(`/accounts/${stake}`),
       bf(`/accounts/${stake}/transactions?count=100&page=1&order=desc`),
-      bf(`/accounts/${stake}/addresses?count=100`).catch(()=>[])
+      bf(`/accounts/${stake}/addresses?count=100`).catch(() => []),
     ]);
+
+    // Store addresses so we can identify our own UTxOs when calculating gains/losses
     myAddresses = new Set(ownAddrs.map(a => a.address));
 
-    // deduplicate
-    const seen = new Set();
-    const txList = rawTxs.filter(t => { if (seen.has(t.tx_hash)) return false; seen.add(t.tx_hash); return true; }).slice(0, 50);
+    // Deduplicate (Blockfrost can return a tx multiple times if it touches
+    // multiple addresses belonging to the same stake key), then cap at 50
+    const seen   = new Set();
+    const txList = rawTxs
+      .filter(t => { if (seen.has(t.tx_hash)) return false; seen.add(t.tx_hash); return true; })
+      .slice(0, 50);
 
     setStatus(`<span class="spinner"></span> Fetching UTxOs for ${txList.length} transactions…`);
+
+    // Fetch full tx details and UTxO data for all transactions in parallel
     const [details, utxos] = await Promise.all([
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(()=>null))),
-      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(()=>null)))
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}`).catch(() => null))),
+      Promise.all(txList.map(t => bf(`/txs/${t.tx_hash}/utxos`).catch(() => null))),
     ]);
 
+    // Build the allTxs array, separating spending inputs/outputs from
+    // collateral inputs (smart contract insurance) and reference inputs (read-only data)
     allTxs = txList.map((t, i) => {
       const u = utxos[i];
       return {
@@ -317,13 +388,22 @@ async function fetchAccount() {
       };
     });
 
-    // fetch token decimals
+    // Collect all unique token units across every UTxO, then fetch decimals
+    // for any tokens we haven't seen before
     const allUnits = new Set();
-    allTxs.forEach(tx => [...tx.inputs, ...tx.outputs].forEach(u => (u.amount||[]).forEach(a => { if (a.unit!=='lovelace') allUnits.add(a.unit); })));
+    allTxs.forEach(tx =>
+      [...tx.inputs, ...tx.outputs].forEach(u =>
+        (u.amount || []).forEach(a => { if (a.unit !== 'lovelace') allUnits.add(a.unit); })
+      )
+    );
     const uncached = [...allUnits].filter(u => !tokenDecimals.has(u));
     if (uncached.length) {
       setStatus(`<span class="spinner"></span> Fetching decimals for ${uncached.length} tokens…`);
-      await Promise.all(uncached.map(unit => bf(`/assets/${unit}`).then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0)).catch(() => tokenDecimals.set(unit, 0))));
+      await Promise.all(uncached.map(unit =>
+        bf(`/assets/${unit}`)
+          .then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0))
+          .catch(() => tokenDecimals.set(unit, 0))
+      ));
     }
 
     renderMeta(acct, txList.length);
@@ -332,550 +412,884 @@ async function fetchAccount() {
     buildTokenPnl();
     setStatus('');
     document.getElementById('results').style.display = 'block';
-  } catch(e) {
+
+  } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
     document.getElementById('search-btn').disabled = false;
   }
 }
 
-// ── Meta ───────────────────────────────────────────────────────────
+// =================================================================
+// ACCOUNT META CARDS
+// =================================================================
+
 function renderMeta(acct, count) {
-  const pool = acct.pool_id ? acct.pool_id.slice(0,12)+'…' : 'Not delegating';
-  document.getElementById('meta-grid').innerHTML = [
-    { label:'Controlled ADA',       value:fmt(lovelace(acct.controlled_amount)),   ada:true  },
-    { label:'Rewards available',    value:fmt(lovelace(acct.withdrawable_amount)), ada:true  },
-    { label:'Total rewards earned', value:fmt(lovelace(acct.rewards_sum)),         ada:true  },
-    { label:'Transactions',         value:count.toLocaleString(),                  ada:false },
-    { label:'Stake pool',           value:pool,                                    ada:false },
-  ].map(c => `<div class="metric"><div class="metric-label">${c.label}</div><div class="metric-value${c.ada?' ada':''}">${c.value}</div></div>`).join('');
+  const pool  = acct.pool_id ? acct.pool_id.slice(0, 12) + '…' : 'Not delegating';
+  const cards = [
+    { label: 'Controlled ADA',       value: fmt(lovelace(acct.controlled_amount)),   ada: true  },
+    { label: 'Rewards available',    value: fmt(lovelace(acct.withdrawable_amount)), ada: true  },
+    { label: 'Total rewards earned', value: fmt(lovelace(acct.rewards_sum)),         ada: true  },
+    { label: 'Transactions',         value: count.toLocaleString(),                  ada: false },
+    { label: 'Stake pool',           value: pool,                                    ada: false },
+  ];
+  document.getElementById('meta-grid').innerHTML = cards.map(c => `
+    <div class="metric">
+      <div class="metric-label">${c.label}</div>
+      <div class="metric-value${c.ada ? ' ada' : ''}">${c.value}</div>
+    </div>`).join('');
   document.getElementById('tx-count-label').textContent = `${count.toLocaleString()} transactions`;
 }
 
-// ── calcTxNet ──────────────────────────────────────────────────────
+// =================================================================
+// WALLET NET CALCULATION
+// =================================================================
+
+// For a given transaction, calculate the net ADA and token flow
+// into/out of our wallet (addresses in myAddresses).
+//
+// Returns { adaNet, tokenNet }
+//   adaNet   - positive = received ADA, negative = sent ADA
+//   tokenNet - Map<unit, net> where positive = received, negative = sent
 function calcTxNet(tx) {
-  let adaIn = 0, adaOut = 0;
-  const tokensIn = new Map(), tokensOut = new Map();
-  (tx.inputs||[]).forEach(u => {
-    if (!myAddresses.has(u.address)) return;
-    (u.amount||[]).forEach(a => { if (a.unit==='lovelace') adaIn+=parseInt(a.quantity); else tokensIn.set(a.unit,(tokensIn.get(a.unit)||0)+applyDecimals(a.quantity,a.unit)); });
+  let adaIn  = 0;
+  let adaOut = 0;
+  const tokensIn  = new Map();
+  const tokensOut = new Map();
+
+  // Sum up everything consumed FROM our wallet addresses (inputs we own)
+  (tx.inputs || []).forEach(utxo => {
+    if (!myAddresses.has(utxo.address)) return;
+    (utxo.amount || []).forEach(a => {
+      if (a.unit === 'lovelace') {
+        adaIn += parseInt(a.quantity);
+      } else {
+        tokensIn.set(a.unit, (tokensIn.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
+      }
+    });
   });
-  (tx.outputs||[]).forEach(u => {
-    if (!myAddresses.has(u.address)) return;
-    (u.amount||[]).forEach(a => { if (a.unit==='lovelace') adaOut+=parseInt(a.quantity); else tokensOut.set(a.unit,(tokensOut.get(a.unit)||0)+applyDecimals(a.quantity,a.unit)); });
+
+  // Sum up everything received BY our wallet addresses (outputs to us)
+  (tx.outputs || []).forEach(utxo => {
+    if (!myAddresses.has(utxo.address)) return;
+    (utxo.amount || []).forEach(a => {
+      if (a.unit === 'lovelace') {
+        adaOut += parseInt(a.quantity);
+      } else {
+        tokensOut.set(a.unit, (tokensOut.get(a.unit) || 0) + applyDecimals(a.quantity, a.unit));
+      }
+    });
   });
-  const adaNet = (adaOut - adaIn) / 1_000_000;
+
+  const adaNet   = (adaOut - adaIn) / 1_000_000;
   const tokenNet = new Map();
-  new Set([...tokensIn.keys(),...tokensOut.keys()]).forEach(u => { const n=(tokensOut.get(u)||0)-(tokensIn.get(u)||0); if (n!==0) tokenNet.set(u,n); });
+
+  // Calculate net per token (positive = net received, negative = net sent)
+  new Set([...tokensIn.keys(), ...tokensOut.keys()]).forEach(unit => {
+    const net = (tokensOut.get(unit) || 0) - (tokensIn.get(unit) || 0);
+    if (net !== 0) tokenNet.set(unit, net);
+  });
+
   return { adaNet, tokenNet };
 }
 
-// ── UTxO rendering ─────────────────────────────────────────────────
+// =================================================================
+// UTXO HTML HELPERS
+// =================================================================
+
+// Render the non-ADA token entries for a single UTxO
 function tokenAmounts(amounts) {
-  return (amounts||[]).filter(a=>a.unit!=='lovelace').map(t => {
-    const qty = fmt4sig(applyDecimals(t.quantity, t.unit));
-    const name = formatAssetName(t.unit.slice(56)) || 'null';
-    const url = `https://adastat.net/tokens/${t.unit}`;
+  const tokens = (amounts || []).filter(a => a.unit !== 'lovelace');
+  if (!tokens.length) return '';
+
+  return tokens.map(t => {
+    const qty      = fmt4sig(applyDecimals(t.quantity, t.unit));
+    const name     = formatAssetName(t.unit.slice(56)) || 'null';
+    const policyId = t.unit.slice(0, 56);
+    const url      = `https://adastat.net/tokens/${t.unit}`;
     return `<div style="font-size:10.5px; color:var(--amber); font-family:var(--mono); margin-top:2px; word-break:break-all;">
       ${qty} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
-      <span style="color:var(--muted); font-size:9.5px; display:block;">${t.unit.slice(0,56)}</span>
+      <span style="color:var(--muted); font-size:9.5px; display:block;">${policyId}</span>
     </div>`;
   }).join('');
 }
 
+// Render a list of UTxOs with optional collapse when there are more
+// than COLLAPSE_THRESHOLD entries.
+// Own wallet addresses are highlighted in green.
 function utxoRows(list, txHash, side) {
-  if (!list || !list.length) return '<span style="color:var(--muted);font-size:12px">—</span>';
+  if (!list || !list.length) {
+    return '<span style="color:var(--muted);font-size:12px">—</span>';
+  }
+
   const needsCollapse = list.length > COLLAPSE_THRESHOLD;
-  const rows = list.map((u, i) => {
-    const addr = u.address || '';
-    const ada  = u.amount?.find(a => a.unit==='lovelace');
-    const adaVal = ada ? fmt(parseInt(ada.quantity)/1_000_000) + ' ₳' : '—';
-    const isOwn = myAddresses.has(addr);
+
+  const rows = list.map((utxo, i) => {
+    const addr   = utxo.address || '';
+    const adaAmt = utxo.amount?.find(a => a.unit === 'lovelace');
+    const adaVal = adaAmt ? fmt(parseInt(adaAmt.quantity) / 1_000_000) + ' ₳' : '—';
+    const isOwn  = myAddresses.has(addr);
     const hidden = needsCollapse && i >= COLLAPSE_THRESHOLD ? ' hidden' : '';
+
     return `<div class="utxo-entry${hidden}">
-      <div class="utxo-top"><span class="utxo-ada">${adaVal}</span></div>
-      ${tokenAmounts(u.amount)}
-      <div class="utxo-addr" style="${isOwn?'color:var(--accent);':''}">${escHtml(addr)}</div>
+      <div class="utxo-top">
+        <span class="utxo-ada">${adaVal}</span>
+      </div>
+      ${tokenAmounts(utxo.amount)}
+      <div class="utxo-addr" style="${isOwn ? 'color:var(--accent);' : ''}">${escHtml(addr)}</div>
     </div>`;
   }).join('');
+
   const expandBtn = needsCollapse
-    ? `<button class="utxo-expand-btn" data-hash="${txHash}" data-side="${side}" data-expanded="false">Show ${list.length-COLLAPSE_THRESHOLD} more ▾</button>`
+    ? `<button class="utxo-expand-btn" data-hash="${txHash}" data-side="${side}" data-expanded="false">
+        Show ${list.length - COLLAPSE_THRESHOLD} more ▾
+       </button>`
     : '';
+
   return `<div class="utxo-list">${rows}${expandBtn}</div>`;
 }
 
+// Render a collapsible section for collateral and reference inputs/outputs.
+// These appear in smart contract transactions:
+//   - Collateral inputs: ADA held as insurance in case the script fails
+//   - Reference inputs:  UTxOs read by a script but not consumed
+//   - Collateral outputs: change returned from collateral (if script succeeds)
 function collateralDetails(tx) {
   const sections = [];
-  if (tx.collateralInputs?.length)  sections.push({ label:`Collateral Inputs (${tx.collateralInputs.length})`,   list:tx.collateralInputs  });
-  if (tx.referenceInputs?.length)   sections.push({ label:`Reference Inputs (${tx.referenceInputs.length})`,    list:tx.referenceInputs   });
-  if (tx.collateralOutputs?.length) sections.push({ label:`Collateral Outputs (${tx.collateralOutputs.length})`, list:tx.collateralOutputs });
+  if (tx.collateralInputs?.length)  sections.push({ label: `Collateral Inputs (${tx.collateralInputs.length})`,   list: tx.collateralInputs  });
+  if (tx.referenceInputs?.length)   sections.push({ label: `Reference Inputs (${tx.referenceInputs.length})`,    list: tx.referenceInputs   });
+  if (tx.collateralOutputs?.length) sections.push({ label: `Collateral Outputs (${tx.collateralOutputs.length})`, list: tx.collateralOutputs });
   if (!sections.length) return '';
+
+  const inner = sections.map(s => `
+    <div style="margin-bottom:6px;">
+      <div style="font-size:10px; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">${s.label}</div>
+      ${utxoRows(s.list, s.label, 'collateral')}
+    </div>`).join('');
+
   return `<details style="margin-top:6px;">
     <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none;">▸ Collateral / Reference</summary>
-    <div style="margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">
-      ${sections.map(s=>`<div style="margin-bottom:6px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">${s.label}</div>${utxoRows(s.list,s.label,'collateral')}</div>`).join('')}
-    </div>
+    <div style="margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">${inner}</div>
   </details>`;
 }
 
-// ── Transaction Log ────────────────────────────────────────────────
+// =================================================================
+// TRANSACTION LOG TABLE
+// =================================================================
+
 function renderTable() {
   if (!allTxs.length) return;
-  const page = allTxs.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+
+  const page = allTxs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   document.getElementById('tx-body').innerHTML = page.map(tx => {
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    const adaColor = adaNet>=0 ? 'var(--accent)' : 'var(--red)';
-    const adaStr = `<span style="font-family:var(--mono);font-size:12px;color:${adaColor};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>`;
-    const tokenSummary = [...tokenNet.entries()].map(([unit,net]) => {
-      const name = formatAssetName(unit.slice(56)) || 'null';
-      const url  = `https://adastat.net/tokens/${unit}`;
-      const c = net>=0 ? 'var(--accent)' : 'var(--red)';
-      return `<span style="font-family:var(--mono);font-size:11px;color:${c};margin-right:10px;">${net>=0?'+':''}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></span>`;
+    const date     = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    const adaStr   = `<span style="font-family:var(--mono); font-size:12px; color:${adaColor};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>`;
+    const staged   = pnlStaged.has(tx.hash);
+
+    // Token summary chips shown inline on the row
+    const tokenSummary = [...tokenNet.entries()].map(([unit, net]) => {
+      const name  = formatAssetName(unit.slice(56)) || 'null';
+      const url   = `https://adastat.net/tokens/${unit}`;
+      const color = net >= 0 ? 'var(--accent)' : 'var(--red)';
+      return `<span style="font-family:var(--mono); font-size:11px; color:${color}; margin-right:10px;">
+        ${net >= 0 ? '+' : ''}${fmt4sig(net)}
+        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+      </span>`;
     }).join('');
+
+    // Collapsible full UTxO view (closed by default)
     const utxoDetail = `<details style="margin-top:6px;">
-      <summary style="font-size:10px;color:var(--muted);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;">
-        <span>▸ Inputs / Outputs</span><span style="color:var(--border2);">·</span><span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
+      <summary style="font-size:10px; color:var(--muted); cursor:pointer; user-select:none; list-style:none; display:flex; align-items:center; gap:4px;">
+        <span>▸ Inputs / Outputs</span>
+        <span style="color:var(--border2);">·</span>
+        <span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
       </summary>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding:8px;background:var(--surface2);border-radius:8px;">
-        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Inputs</div>${utxoRows(tx.inputs,tx.hash,'inputs')}</div>
-        <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Outputs</div>${utxoRows(tx.outputs,tx.hash,'outputs')}</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding:8px; background:var(--surface2); border-radius:8px;">
+        <div>
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Inputs</div>
+          ${utxoRows(tx.inputs, tx.hash, 'inputs')}
+        </div>
+        <div>
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Outputs</div>
+          ${utxoRows(tx.outputs, tx.hash, 'outputs')}
+        </div>
       </div>
       ${collateralDetails(tx)}
     </details>`;
-    const staged = pnlStaged.has(tx.hash);
+
     return `<tr>
       <td class="hash-cell col-hash" style="padding-top:13px;">
-        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">${tx.hash.slice(0,8)}…${tx.hash.slice(-6)}</a>
-        <button class="trade-add-btn${staged?' active':''}" data-pnl-hash="${tx.hash}" title="Add to P&L">${staged?'✓':'+'}</button>
+        <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
+          ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
+        </a>
+        <button class="trade-add-btn${staged ? ' active' : ''}" data-pnl-hash="${tx.hash}" title="Add to P&L">
+          ${staged ? '✓' : '+'}
+        </button>
       </td>
-      <td class="col-date" style="font-size:12px;color:var(--muted);padding-top:13px;">${date}</td>
+      <td class="col-date" style="font-size:12px; color:var(--muted); padding-top:13px;">${date}</td>
       <td class="col-summary">
-        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding-top:2px;">${adaStr}${tokenSummary}</div>
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding-top:2px;">
+          ${adaStr}${tokenSummary}
+        </div>
         ${utxoDetail}
       </td>
     </tr>`;
   }).join('');
+
   renderPagination();
 }
 
 function renderPagination() {
   const total = Math.ceil(allTxs.length / PAGE_SIZE);
-  const pg = document.getElementById('pagination');
-  if (total<=1) { pg.innerHTML=''; return; }
+  const pg    = document.getElementById('pagination');
+  if (total <= 1) { pg.innerHTML = ''; return; }
   pg.innerHTML = `
-    <button class="btn btn-ghost" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>← Prev</button>
+    <button class="btn btn-ghost" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
     <span>Page ${currentPage} of ${total}</span>
-    <button class="btn btn-ghost" onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>`;
+    <button class="btn btn-ghost" onclick="goPage(${currentPage + 1})" ${currentPage === total ? 'disabled' : ''}>Next →</button>`;
 }
-function goPage(p) { currentPage=p; renderTable(); window.scrollTo({top:0}); }
+
+function goPage(p) {
+  currentPage = p;
+  renderTable();
+  window.scrollTo({ top: 0 });
+}
 
 function exportCSV() {
-  const rows = [['TX Hash','Date','ADA Net','Block']];
+  const rows = [['TX Hash', 'Date', 'ADA Net', 'Block']];
   allTxs.forEach(tx => {
     const { adaNet } = calcTxNet(tx);
-    rows.push([tx.hash, new Date(tx.time*1000).toLocaleDateString('en-US'), fmt(adaNet,6), tx.block||'']);
+    rows.push([
+      tx.hash,
+      new Date(tx.time * 1000).toLocaleDateString('en-US'),
+      fmt(adaNet, 6),
+      tx.block || '',
+    ]);
   });
-  const csv = rows.map(r => r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a   = document.createElement('a');
+  a.href    = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'cardano-transactions.csv';
   a.click();
 }
 
-// ── P&L Staging ────────────────────────────────────────────────────
-const pnlStaged = new Set();
+// =================================================================
+// P&L STAGING PANEL
+//
+// Before assigning transactions to a token in the P&L panel, users
+// first stage them here by clicking the + button on any tx row.
+// The staging panel is a sticky sidebar that stays visible while
+// scrolling through the transaction log.
+// =================================================================
 
+const pnlStaged = new Set(); // hashes currently staged for P&L assignment
+
+// Toggle a transaction's staged state and update the UI
 function togglePnlStaged(hash) {
-  pnlStaged.has(hash) ? pnlStaged.delete(hash) : pnlStaged.add(hash);
+  if (pnlStaged.has(hash)) pnlStaged.delete(hash);
+  else pnlStaged.add(hash);
+
   renderPnlStaging();
+
+  // Sync the + button appearance in the table row
   const btn = document.querySelector(`[data-pnl-hash="${hash}"]`);
-  if (btn) { btn.textContent = pnlStaged.has(hash)?'✓':'+'; btn.classList.toggle('active', pnlStaged.has(hash)); }
+  if (btn) {
+    btn.textContent = pnlStaged.has(hash) ? '✓' : '+';
+    btn.classList.toggle('active', pnlStaged.has(hash));
+  }
 }
 
 function renderPnlStaging() {
-  const panel = document.getElementById('pnl-staging-panel');
+  const panel  = document.getElementById('pnl-staging-panel');
   const listEl = document.getElementById('pnl-staging-list');
-  if (!pnlStaged.size) { panel.style.display='none'; return; }
-  panel.style.display='block';
+
+  if (!pnlStaged.size) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
   listEl.innerHTML = [...pnlStaged].map(hash => {
-    const tx = allTxs.find(t=>t.hash===hash);
+    const tx = allTxs.find(t => t.hash === hash);
     if (!tx) return '';
     const { adaNet } = calcTxNet(tx);
-    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    const c = adaNet>=0?'var(--accent)':'var(--red)';
-    return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;">
-      <div style="display:flex;align-items:center;gap:4px;">
-        <span style="font-family:var(--mono);color:var(--blue);font-size:10.5px;flex:1;">${hash.slice(0,8)}…${hash.slice(-6)}</span>
-        <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
+    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const color = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div style="padding:4px 0; border-bottom:1px solid var(--border); font-size:11px;">
+      <div style="display:flex; align-items:center; gap:4px;">
+        <span style="font-family:var(--mono); color:var(--blue); font-size:10.5px; flex:1;">${hash.slice(0, 8)}…${hash.slice(-6)}</span>
+        <button data-unstage="${hash}" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:12px; padding:0;">✕</button>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:2px;">
-        <span style="color:var(--muted);font-size:10px;">${date}</span>
-        <span style="font-family:var(--mono);font-size:10.5px;color:${c};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      <div style="display:flex; justify-content:space-between; margin-top:2px;">
+        <span style="color:var(--muted); font-size:10px;">${date}</span>
+        <span style="font-family:var(--mono); font-size:10.5px; color:${color};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
       </div>
     </div>`;
   }).join('');
-  listEl.querySelectorAll('[data-unstage]').forEach(btn => btn.addEventListener('click', () => togglePnlStaged(btn.dataset.unstage)));
+
+  // Attach remove (✕) listeners to each staged item
+  listEl.querySelectorAll('[data-unstage]').forEach(btn =>
+    btn.addEventListener('click', () => togglePnlStaged(btn.dataset.unstage))
+  );
 }
 
 document.getElementById('pnl-clear-btn').addEventListener('click', () => {
-  [...pnlStaged].forEach(h => { const b=document.querySelector(`[data-pnl-hash="${h}"]`); if(b){b.textContent='+';b.classList.remove('active');} });
-  pnlStaged.clear(); renderPnlStaging();
+  // Remove all staged txs and reset their + buttons
+  [...pnlStaged].forEach(h => {
+    const b = document.querySelector(`[data-pnl-hash="${h}"]`);
+    if (b) { b.textContent = '+'; b.classList.remove('active'); }
+  });
+  pnlStaged.clear();
+  renderPnlStaging();
 });
-document.getElementById('pnl-assign-btn').addEventListener('click', () => { if (pnlStaged.size) openPnlPopup(); });
 
-// ── P&L Popup ──────────────────────────────────────────────────────
-let pnlPopupUnit = null, pnlPopupRole = 'buy';
+document.getElementById('pnl-assign-btn').addEventListener('click', () => {
+  if (pnlStaged.size) openPnlPopup();
+});
+
+// =================================================================
+// P&L BATCH ASSIGN POPUP
+//
+// Shows the staged transactions, lets you pick a token, and assigns
+// all staged txs to that token as Buy or Sell in one action.
+// =================================================================
+
+let pnlPopupUnit = null; // the token unit selected in the popup
+let pnlPopupRole = 'buy'; // 'buy' or 'sell'
 
 function openPnlPopup() {
-  pnlPopupUnit = null; pnlPopupRole = 'buy';
+  pnlPopupUnit = null;
+  pnlPopupRole = 'buy';
+
+  // Show the list of staged transactions
   document.getElementById('pnl-popup-txlist').innerHTML = [...pnlStaged].map(hash => {
-    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return '';
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return '';
     const { adaNet } = calcTxNet(tx);
-    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    const c = adaNet>=0?'var(--accent)':'var(--red)';
-    return `<div style="display:flex;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-      <span style="font-family:var(--mono);color:var(--blue);">${hash.slice(0,10)}…${hash.slice(-6)}</span>
+    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const color = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div style="display:flex; gap:8px; font-size:11px; padding:3px 0; border-bottom:1px solid var(--border); flex-wrap:wrap;">
+      <span style="font-family:var(--mono); color:var(--blue);">${hash.slice(0, 10)}…${hash.slice(-6)}</span>
       <span style="color:var(--muted);">${date}</span>
-      <span style="font-family:var(--mono);color:${c};margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      <span style="font-family:var(--mono); color:${color}; margin-left:auto;">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
     </div>`;
   }).join('');
-  const allUnitsForPopup = new Set([...pnlTokenTxs.keys()]);
-  allTxs.forEach(tx => { const {tokenNet} = calcTxNet(tx); tokenNet.forEach((_,u) => allUnitsForPopup.add(u)); });
+
+  // Show all known tokens as selectable options
+  // (includes tokens already in the P&L panel and any in staged txs)
+  const knownUnits = new Set([...pnlTokenTxs.keys()]);
+  allTxs.forEach(tx => { const { tokenNet } = calcTxNet(tx); tokenNet.forEach((_, u) => knownUnits.add(u)); });
+
   const tokensEl = document.getElementById('pnl-popup-tokens');
-  tokensEl.innerHTML = [...allUnitsForPopup].map(unit => {
+  tokensEl.innerHTML = [...knownUnits].map(unit => {
     const name = formatAssetName(unit.slice(56)) || 'null';
-    return `<div class="pnl-token-option" data-unit="${unit}" style="padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface2);">
-      <span style="color:var(--amber);font-size:12px;font-weight:600;">${escHtml(name)}</span>
-      <span style="font-size:10px;color:var(--muted);font-family:var(--mono);">${unit.slice(0,12)}…</span>
+    return `<div class="pnl-token-option" data-unit="${unit}"
+        style="padding:6px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface2);">
+      <span style="color:var(--amber); font-size:12px; font-weight:600;">${escHtml(name)}</span>
+      <span style="font-size:10px; color:var(--muted); font-family:var(--mono);">${unit.slice(0, 12)}…</span>
     </div>`;
   }).join('');
-  tokensEl.querySelectorAll('.pnl-token-option').forEach(el => el.addEventListener('click', () => {
-    tokensEl.querySelectorAll('.pnl-token-option').forEach(e => e.style.borderColor='var(--border)');
-    el.style.borderColor='var(--accent)'; pnlPopupUnit=el.dataset.unit;
-  }));
+
+  // Clicking a token highlights it and stores it as the selected unit
+  tokensEl.querySelectorAll('.pnl-token-option').forEach(el =>
+    el.addEventListener('click', () => {
+      tokensEl.querySelectorAll('.pnl-token-option').forEach(e => e.style.borderColor = 'var(--border)');
+      el.style.borderColor = 'var(--accent)';
+      pnlPopupUnit = el.dataset.unit;
+    })
+  );
+
   updatePnlRoleBtns();
-  document.getElementById('pnl-popup').style.display='flex';
+  document.getElementById('pnl-popup').style.display = 'flex';
 }
 
 function updatePnlRoleBtns() {
-  document.getElementById('pnl-popup-buy').style.opacity  = pnlPopupRole==='buy'  ? '1':'0.4';
-  document.getElementById('pnl-popup-sell').style.opacity = pnlPopupRole==='sell' ? '1':'0.4';
+  document.getElementById('pnl-popup-buy').style.opacity  = pnlPopupRole === 'buy'  ? '1' : '0.4';
+  document.getElementById('pnl-popup-sell').style.opacity = pnlPopupRole === 'sell' ? '1' : '0.4';
 }
-document.getElementById('pnl-popup-buy').addEventListener('click',  () => { pnlPopupRole='buy';  updatePnlRoleBtns(); });
-document.getElementById('pnl-popup-sell').addEventListener('click', () => { pnlPopupRole='sell'; updatePnlRoleBtns(); });
+
+document.getElementById('pnl-popup-buy').addEventListener('click',  () => { pnlPopupRole = 'buy';  updatePnlRoleBtns(); });
+document.getElementById('pnl-popup-sell').addEventListener('click', () => { pnlPopupRole = 'sell'; updatePnlRoleBtns(); });
 
 document.getElementById('pnl-popup-confirm').addEventListener('click', () => {
   if (!pnlPopupUnit) { alert('Please select a token.'); return; }
+
+  // Ensure data structures exist for this token
   if (!pnlTokenTxs.has(pnlPopupUnit)) pnlTokenTxs.set(pnlPopupUnit, new Map());
   if (!pnlRoles.has(pnlPopupUnit))    pnlRoles.set(pnlPopupUnit, new Map());
+
+  // Assign all staged txs to the selected token with the chosen role
   [...pnlStaged].forEach(hash => {
-    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return;
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return;
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    pnlTokenTxs.get(pnlPopupUnit).set(hash, { hash, date, tokenNet: tokenNet.get(pnlPopupUnit)||0, adaNet });
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    pnlTokenTxs.get(pnlPopupUnit).set(hash, { hash, date, tokenNet: tokenNet.get(pnlPopupUnit) || 0, adaNet });
     pnlRoles.get(pnlPopupUnit).set(hash, pnlPopupRole);
   });
+
+  // Save unit before closePnlPopup() nulls it, then re-render and open that token
   const assignedUnit = pnlPopupUnit;
   closePnlPopup();
   renderTokenPnl();
-  const body = document.getElementById(`pnl-body-${assignedUnit.slice(0,16)}`);
-  if (body) body.classList.add('open');
+  document.getElementById(`pnl-body-${assignedUnit.slice(0, 16)}`)?.classList.add('open');
 });
 
-function closePnlPopup() { document.getElementById('pnl-popup').style.display='none'; pnlPopupUnit=null; }
-document.getElementById('pnl-popup').addEventListener('click', e => { if (e.target===document.getElementById('pnl-popup')) closePnlPopup(); });
+function closePnlPopup() {
+  document.getElementById('pnl-popup').style.display = 'none';
+  pnlPopupUnit = null;
+}
 
-// ── Token P&L ──────────────────────────────────────────────────────
-const pnlRoles    = new Map();
-const pnlTokenTxs = new Map();
+// Close popup when clicking the dark overlay background
+document.getElementById('pnl-popup').addEventListener('click', e => {
+  if (e.target === document.getElementById('pnl-popup')) closePnlPopup();
+});
 
+// =================================================================
+// TOKEN P&L PANEL
+//
+// Shows each token that appeared in the wallet's transactions.
+// For each token you can see:
+//   - Total received (▲) and sent (▼) across all txs
+//   - Per-transaction breakdown with Buy/Sell role assignment
+//   - Calculated cost basis, average price, and net gain/loss
+//
+// Token gains are auto-assigned as "Buy" and losses as "Sell"
+// when the panel is first built, but you can override any role.
+// =================================================================
+
+const pnlRoles    = new Map(); // Map<unit, Map<hash, 'buy'|'sell'|'none'>>
+const pnlTokenTxs = new Map(); // Map<unit, Map<hash, {hash, date, tokenNet, adaNet}>>
+
+// Seed the P&L panel from the transaction history.
+// Auto-assigns Buy for token gains and Sell for token losses.
 function buildTokenPnl() {
   allTxs.forEach(tx => {
     const { adaNet, tokenNet } = calcTxNet(tx);
-    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
     tokenNet.forEach((tNet, unit) => {
       if (!pnlTokenTxs.has(unit)) pnlTokenTxs.set(unit, new Map());
       if (!pnlRoles.has(unit))    pnlRoles.set(unit, new Map());
+
+      // Don't overwrite txs that were manually assigned
       if (!pnlTokenTxs.get(unit).has(tx.hash)) {
-        pnlTokenTxs.get(unit).set(tx.hash, { hash:tx.hash, date, tokenNet:tNet, adaNet });
-        pnlRoles.get(unit).set(tx.hash, tNet>0 ? 'buy' : 'sell');
+        pnlTokenTxs.get(unit).set(tx.hash, { hash: tx.hash, date, tokenNet: tNet, adaNet });
+        pnlRoles.get(unit).set(tx.hash, tNet > 0 ? 'buy' : 'sell');
       }
     });
   });
+
   renderTokenPnl();
 }
 
 function renderTokenPnl() {
   const sidebar = document.getElementById('token-pnl-sidebar');
   const list    = document.getElementById('token-pnl-list');
-  if (!pnlTokenTxs.size) { sidebar.style.display='none'; return; }
-  sidebar.style.display='block';
+  if (!pnlTokenTxs.size) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+
+  // Remember which sections were expanded so we can restore them after re-render
   const openUnits = new Set();
   list.querySelectorAll('.pnl-token-body.open').forEach(el => openUnits.add(el.dataset.unit));
+
   list.innerHTML = [...pnlTokenTxs.entries()].map(([unit, txMap]) => {
-    const txs     = [...txMap.values()];
-    const name    = formatAssetName(unit.slice(56)) || 'null';
-    const url     = `https://adastat.net/tokens/${unit}`;
-    const totalIn  = txs.filter(t=>t.tokenNet>0).reduce((s,t)=>s+t.tokenNet,0);
-    const totalOut = txs.filter(t=>t.tokenNet<0).reduce((s,t)=>s+Math.abs(t.tokenNet),0);
-    const netPos  = totalIn - totalOut;
-    const netColor = netPos>=0?'var(--accent)':'var(--red)';
-    const bodyId  = `pnl-body-${unit.slice(0,16)}`;
-    const roles   = pnlRoles.get(unit) || new Map();
-    const txRows  = txs.map(t => {
-      const role = roles.get(t.hash)||'none';
-      const tColor = t.tokenNet>0?'var(--accent)':t.tokenNet<0?'var(--red)':'var(--muted)';
-      const adaColor = t.adaNet>=0?'var(--accent)':'var(--red)';
-      const tknStr = t.tokenNet!==0 ? `${t.tokenNet>0?'+':''}${fmt4sig(t.tokenNet)} tkn` : '<span style="color:var(--muted)">— tkn</span>';
+    const txs      = [...txMap.values()];
+    const name     = formatAssetName(unit.slice(56)) || 'null';
+    const url      = `https://adastat.net/tokens/${unit}`;
+    const totalIn  = txs.filter(t => t.tokenNet > 0).reduce((s, t) => s + t.tokenNet, 0);
+    const totalOut = txs.filter(t => t.tokenNet < 0).reduce((s, t) => s + Math.abs(t.tokenNet), 0);
+    const netPos   = totalIn - totalOut;
+    const netColor = netPos >= 0 ? 'var(--accent)' : 'var(--red)';
+    const bodyId   = `pnl-body-${unit.slice(0, 16)}`;
+    const roles    = pnlRoles.get(unit) || new Map();
+
+    const txRows = txs.map(t => {
+      const role     = roles.get(t.hash) || 'none';
+      const tColor   = t.tokenNet > 0 ? 'var(--accent)' : t.tokenNet < 0 ? 'var(--red)' : 'var(--muted)';
+      const adaColor = t.adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+      const tknStr   = t.tokenNet !== 0
+        ? `${t.tokenNet > 0 ? '+' : ''}${fmt4sig(t.tokenNet)} tkn`
+        : '<span style="color:var(--muted)">— tkn</span>';
       return `<div class="pnl-tx-row">
         <select class="pnl-role-select" data-unit="${unit}" data-hash="${t.hash}">
-          <option value="none" ${role==='none'?'selected':''}>—</option>
-          <option value="buy"  ${role==='buy' ?'selected':''}>Buy</option>
-          <option value="sell" ${role==='sell'?'selected':''}>Sell</option>
+          <option value="none" ${role === 'none' ? 'selected' : ''}>—</option>
+          <option value="buy"  ${role === 'buy'  ? 'selected' : ''}>Buy</option>
+          <option value="sell" ${role === 'sell' ? 'selected' : ''}>Sell</option>
         </select>
-        <span class="pnl-tx-link" data-hash="${t.hash}">${t.hash.slice(0,8)}…${t.hash.slice(-6)}</span>
-        <span style="color:var(--muted);font-size:10.5px;white-space:nowrap;">${t.date}</span>
-        <span style="font-family:var(--mono);color:${tColor};font-size:11px;">${tknStr}</span>
-        <span style="font-family:var(--mono);color:${adaColor};font-size:11px;">${t.adaNet>=0?'+':''}${fmt(t.adaNet,4)} ₳</span>
-        <button onclick="removeTxFromPnl('${unit}','${t.hash}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
+        <span class="pnl-tx-link" data-hash="${t.hash}">${t.hash.slice(0, 8)}…${t.hash.slice(-6)}</span>
+        <span style="color:var(--muted); font-size:10.5px; white-space:nowrap;">${t.date}</span>
+        <span style="font-family:var(--mono); color:${tColor}; font-size:11px;">${tknStr}</span>
+        <span style="font-family:var(--mono); color:${adaColor}; font-size:11px;">${t.adaNet >= 0 ? '+' : ''}${fmt(t.adaNet, 4)} ₳</span>
+        <button onclick="removeTxFromPnl('${unit}','${t.hash}')" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:12px; padding:0;">✕</button>
       </div>`;
     }).join('');
+
     return `<div class="pnl-token-row" data-unit="${unit}">
       <div class="pnl-token-header" onclick="togglePnlToken('${unit}')">
-        <span class="pnl-token-name"><a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;" onclick="event.stopPropagation()">${escHtml(name)}</a></span>
+        <span class="pnl-token-name">
+          <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;" onclick="event.stopPropagation()">${escHtml(name)}</a>
+        </span>
         <span class="pnl-stat" style="color:var(--accent);">▲ ${fmt4sig(totalIn)}</span>
         <span class="pnl-stat" style="color:var(--red);">▼ ${fmt4sig(totalOut)}</span>
-        <span class="pnl-stat" style="color:${netColor};">Net ${netPos>=0?'+':''}${fmt4sig(netPos)}</span>
+        <span class="pnl-stat" style="color:${netColor};">Net ${netPos >= 0 ? '+' : ''}${fmt4sig(netPos)}</span>
       </div>
-      <div class="pnl-token-body${openUnits.has(unit)?' open':''}" id="${bodyId}" data-unit="${unit}">
+      <div class="pnl-token-body${openUnits.has(unit) ? ' open' : ''}" id="${bodyId}" data-unit="${unit}">
         ${txRows}
-        <div class="pnl-summary-box" id="pnl-sum-${unit.slice(0,16)}">${pnlSummaryHTML(unit,txs,roles)}</div>
+        <div class="pnl-summary-box" id="pnl-sum-${unit.slice(0, 16)}">${pnlSummaryHTML(unit, txs, roles)}</div>
       </div>
     </div>`;
   }).join('');
+
   renderPnlTotals();
-  list.querySelectorAll('.pnl-role-select').forEach(sel => sel.addEventListener('change', e => {
-    const unit=e.target.dataset.unit, hash=e.target.dataset.hash;
-    pnlRoles.get(unit)?.set(hash, e.target.value);
-    const txs=[...(pnlTokenTxs.get(unit)?.values()||[])];
-    const sumEl=document.getElementById(`pnl-sum-${unit.slice(0,16)}`);
-    if (sumEl) sumEl.innerHTML=pnlSummaryHTML(unit,txs,pnlRoles.get(unit));
-    renderPnlTotals();
-  }));
-  list.querySelectorAll('.pnl-tx-link').forEach(el => el.addEventListener('click', () => scrollToTx(el.dataset.hash)));
+
+  // Role dropdowns: update just the summary box when a role changes
+  // (avoids a full re-render that would close expanded sections)
+  list.querySelectorAll('.pnl-role-select').forEach(sel =>
+    sel.addEventListener('change', e => {
+      const unit  = e.target.dataset.unit;
+      const hash  = e.target.dataset.hash;
+      pnlRoles.get(unit)?.set(hash, e.target.value);
+      const txs   = [...(pnlTokenTxs.get(unit)?.values() || [])];
+      const sumEl = document.getElementById(`pnl-sum-${unit.slice(0, 16)}`);
+      if (sumEl) sumEl.innerHTML = pnlSummaryHTML(unit, txs, pnlRoles.get(unit));
+      renderPnlTotals();
+    })
+  );
+
+  // Tx hash links: click to scroll to that transaction in the log
+  list.querySelectorAll('.pnl-tx-link').forEach(el =>
+    el.addEventListener('click', () => scrollToTx(el.dataset.hash))
+  );
 }
 
+// Build the cost basis summary box for a single token
 function pnlSummaryHTML(unit, txs, roles) {
-  let adaPaid=0, adaReceived=0, tokensBought=0, tokensSold=0;
+  let adaPaid      = 0;
+  let adaReceived  = 0;
+  let tokensBought = 0;
+  let tokensSold   = 0;
+
   txs.forEach(t => {
-    const role=roles.get(t.hash)||'none';
-    if (role==='buy')  { adaPaid     +=Math.abs(t.adaNet); tokensBought+=t.tokenNet; }
-    if (role==='sell') { adaReceived +=t.adaNet;           tokensSold  +=Math.abs(t.tokenNet); }
+    const role = roles.get(t.hash) || 'none';
+    if (role === 'buy') {
+      adaPaid      += Math.abs(t.adaNet);
+      tokensBought += t.tokenNet;
+    }
+    if (role === 'sell') {
+      adaReceived += t.adaNet;
+      tokensSold  += Math.abs(t.tokenNet);
+    }
   });
-  if (adaPaid===0 && adaReceived===0) return `<span style="font-size:11px;color:var(--muted);">Mark txs as Buy or Sell to calculate P&L</span>`;
-  const gain=adaReceived-adaPaid, gc=gain>=0?'var(--accent)':'var(--red)';
-  const avgBuy =tokensBought>0?adaPaid/tokensBought:null;
-  const avgSell=tokensSold>0?adaReceived/tokensSold:null;
-  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:11px;">
-    <div><span style="color:var(--muted);">ADA paid</span> <span style="font-family:var(--mono);color:var(--red);">${fmt(adaPaid,4)} ₳</span>${avgBuy!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgBuy,6)} ₳/tkn)</span>`:''}</div>
-    <div><span style="color:var(--muted);">ADA received</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt(adaReceived,4)} ₳</span>${avgSell!==null?`<span style="color:var(--muted);font-size:10px;"> (${fmt(avgSell,6)} ₳/tkn)</span>`:''}</div>
-    <div><span style="color:var(--muted);">Tokens bought</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt4sig(tokensBought)}</span></div>
-    <div><span style="color:var(--muted);">Tokens sold</span> <span style="font-family:var(--mono);color:var(--red);">${fmt4sig(tokensSold)}</span></div>
-  </div>
-  <div style="margin-top:6px;font-size:12px;font-weight:600;font-family:var(--mono);color:${gc};">Net gain: ${gain>=0?'+':''}${fmt(gain,4)} ₳</div>`;
-}
 
-function renderPnlTotals() {
-  const el=document.getElementById('token-pnl-totals');
-  let grandPaid=0, grandReceived=0, hasAny=false;
-  pnlTokenTxs.forEach((txMap,unit) => {
-    const roles=pnlRoles.get(unit)||new Map();
-    txMap.forEach(t => { const r=roles.get(t.hash)||'none'; if(r==='buy'){grandPaid+=Math.abs(t.adaNet);hasAny=true;} if(r==='sell'){grandReceived+=t.adaNet;hasAny=true;} });
-  });
-  if (!hasAny) { el.style.display='none'; return; }
-  const gain=grandReceived-grandPaid, gc=gain>=0?'var(--accent)':'var(--red)';
-  el.style.display='block';
-  el.innerHTML=`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Overall Token P&L</div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:4px;">
-      <span><span style="color:var(--muted);">Total ADA paid</span> <span style="font-family:var(--mono);color:var(--red);">${fmt(grandPaid,4)} ₳</span></span>
-      <span><span style="color:var(--muted);">Total ADA received</span> <span style="font-family:var(--mono);color:var(--accent);">${fmt(grandReceived,4)} ₳</span></span>
+  if (adaPaid === 0 && adaReceived === 0) {
+    return `<span style="font-size:11px; color:var(--muted);">Mark txs as Buy or Sell to calculate P&L</span>`;
+  }
+
+  const gain      = adaReceived - adaPaid;
+  const gainColor = gain >= 0 ? 'var(--accent)' : 'var(--red)';
+  const avgBuy    = tokensBought > 0 ? adaPaid     / tokensBought : null;
+  const avgSell   = tokensSold   > 0 ? adaReceived / tokensSold   : null;
+
+  return `<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; font-size:11px;">
+    <div>
+      <span style="color:var(--muted);">ADA paid</span>
+      <span style="font-family:var(--mono); color:var(--red);">${fmt(adaPaid, 4)} ₳</span>
+      ${avgBuy  !== null ? `<span style="color:var(--muted); font-size:10px;"> (${fmt(avgBuy,  6)} ₳/tkn)</span>` : ''}
     </div>
-    <div style="font-size:13px;font-weight:600;font-family:var(--mono);color:${gc};">Net: ${gain>=0?'+':''}${fmt(gain,4)} ₳</div>`;
+    <div>
+      <span style="color:var(--muted);">ADA received</span>
+      <span style="font-family:var(--mono); color:var(--accent);">${fmt(adaReceived, 4)} ₳</span>
+      ${avgSell !== null ? `<span style="color:var(--muted); font-size:10px;"> (${fmt(avgSell, 6)} ₳/tkn)</span>` : ''}
+    </div>
+    <div><span style="color:var(--muted);">Tokens bought</span> <span style="font-family:var(--mono); color:var(--accent);">${fmt4sig(tokensBought)}</span></div>
+    <div><span style="color:var(--muted);">Tokens sold</span>   <span style="font-family:var(--mono); color:var(--red);">${fmt4sig(tokensSold)}</span></div>
+  </div>
+  <div style="margin-top:6px; font-size:12px; font-weight:600; font-family:var(--mono); color:${gainColor};">
+    Net gain: ${gain >= 0 ? '+' : ''}${fmt(gain, 4)} ₳
+  </div>`;
 }
 
-function removeTxFromPnl(unit, hash) { pnlTokenTxs.get(unit)?.delete(hash); pnlRoles.get(unit)?.delete(hash); renderTokenPnl(); }
-function togglePnlToken(unit) { const b=document.getElementById(`pnl-body-${unit.slice(0,16)}`); if(b) b.classList.toggle('open'); }
+// Overall P&L totals summed across all tokens
+function renderPnlTotals() {
+  const el = document.getElementById('token-pnl-totals');
+  let grandPaid     = 0;
+  let grandReceived = 0;
+  let hasAny        = false;
 
+  pnlTokenTxs.forEach((txMap, unit) => {
+    const roles = pnlRoles.get(unit) || new Map();
+    txMap.forEach(t => {
+      const role = roles.get(t.hash) || 'none';
+      if (role === 'buy')  { grandPaid     += Math.abs(t.adaNet); hasAny = true; }
+      if (role === 'sell') { grandReceived += t.adaNet;           hasAny = true; }
+    });
+  });
+
+  if (!hasAny) { el.style.display = 'none'; return; }
+
+  const grandGain = grandReceived - grandPaid;
+  const gc        = grandGain >= 0 ? 'var(--accent)' : 'var(--red)';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Overall Token P&L</div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:11px; margin-bottom:4px;">
+      <span><span style="color:var(--muted);">Total ADA paid</span>      <span style="font-family:var(--mono); color:var(--red);">${fmt(grandPaid, 4)} ₳</span></span>
+      <span><span style="color:var(--muted);">Total ADA received</span>  <span style="font-family:var(--mono); color:var(--accent);">${fmt(grandReceived, 4)} ₳</span></span>
+    </div>
+    <div style="font-size:13px; font-weight:600; font-family:var(--mono); color:${gc};">
+      Net: ${grandGain >= 0 ? '+' : ''}${fmt(grandGain, 4)} ₳
+    </div>`;
+}
+
+function removeTxFromPnl(unit, hash) {
+  pnlTokenTxs.get(unit)?.delete(hash);
+  pnlRoles.get(unit)?.delete(hash);
+  renderTokenPnl();
+}
+
+function togglePnlToken(unit) {
+  document.getElementById(`pnl-body-${unit.slice(0, 16)}`)?.classList.toggle('open');
+}
+
+// Scroll the transaction log to the row for a given hash.
+// Switches pages if needed, then smoothly scrolls and briefly
+// highlights the row in green so it's easy to spot.
 function scrollToTx(hash) {
-  const idx = allTxs.findIndex(t=>t.hash===hash);
-  if (idx===-1) return;
-  const targetPage = Math.floor(idx/PAGE_SIZE)+1;
-  if (targetPage!==currentPage) { currentPage=targetPage; renderTable(); }
+  const idx = allTxs.findIndex(t => t.hash === hash);
+  if (idx === -1) return;
+
+  const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+  if (targetPage !== currentPage) { currentPage = targetPage; renderTable(); }
+
   requestAnimationFrame(() => {
     const row = document.querySelector(`[data-pnl-hash="${hash}"]`)?.closest('tr');
     if (!row) return;
-    row.scrollIntoView({behavior:'smooth',block:'center'});
-    row.style.transition='background 0.2s';
-    row.style.background='rgba(12,217,160,0.12)';
-    setTimeout(()=>{row.style.background='';},1800);
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.style.transition = 'background 0.2s';
+    row.style.background = 'rgba(12,217,160,0.12)';
+    setTimeout(() => { row.style.background = ''; }, 1800);
   });
 }
 
-// ── Trades ─────────────────────────────────────────────────────────
-const lockedTrades = [];
-const tradeSelected = new Set();
-let tradeIdCounter = 0;
+// =================================================================
+// TRADES SIDEBAR
+//
+// Separate from the Token P&L panel. Lets you group transactions
+// into named trades (e.g. "SHEN buy Jan 2024") with a type tag
+// (Token trade / Bought ADA / Interest / Other), then shows the
+// net ADA and token cost basis for each locked-in trade, plus
+// grand totals across all trades.
+// =================================================================
+
+const lockedTrades  = []; // array of { id, name, type, hashes: Set }
+const tradeSelected = new Set(); // txs staged for a new trade
+let tradeIdCounter  = 0;
 
 const TRADE_TYPE_META = {
-  trade:      { label:'Token trade',        color:'var(--blue)',   bg:'rgba(96,165,250,0.12)' },
-  bought_ada: { label:'Bought ADA with USD', color:'var(--accent)', bg:'var(--accent-dim)'    },
-  interest:   { label:'Interest earned',     color:'var(--amber)', bg:'var(--amber-dim)'     },
-  other:      { label:'Other',               color:'var(--muted)', bg:'var(--surface2)'      },
+  trade:      { label: 'Token trade',        color: 'var(--blue)',   bg: 'rgba(96,165,250,0.12)' },
+  bought_ada: { label: 'Bought ADA with USD', color: 'var(--accent)', bg: 'var(--accent-dim)'    },
+  interest:   { label: 'Interest earned',     color: 'var(--amber)', bg: 'var(--amber-dim)'     },
+  other:      { label: 'Other',               color: 'var(--muted)', bg: 'var(--surface2)'      },
 };
 
+// Sum net ADA and tokens across a set of transaction hashes
 function calcTradeNet(hashes) {
-  let totalAdaNet=0; const tokenNets=new Map();
-  [...hashes].forEach(hash => { const tx=allTxs.find(t=>t.hash===hash); if(!tx) return; const {adaNet,tokenNet}=calcTxNet(tx); totalAdaNet+=adaNet; tokenNet.forEach((n,u)=>tokenNets.set(u,(tokenNets.get(u)||0)+n)); });
+  let totalAdaNet = 0;
+  const tokenNets = new Map();
+  [...hashes].forEach(hash => {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return;
+    const { adaNet, tokenNet } = calcTxNet(tx);
+    totalAdaNet += adaNet;
+    tokenNet.forEach((n, u) => tokenNets.set(u, (tokenNets.get(u) || 0) + n));
+  });
   return { totalAdaNet, tokenNets };
 }
 
-function renderTradesSidebar() {
-  const sidebar=document.getElementById('trades-sidebar');
-  const staging=document.getElementById('trade-staging');
-  const stagList=document.getElementById('staging-list');
-  const list=document.getElementById('trades-list');
-  const hasStaging=tradeSelected.size>0, hasLocked=lockedTrades.length>0;
-  if (!hasStaging && !hasLocked) { sidebar.style.display='none'; return; }
-  sidebar.style.display='block';
-  staging.style.display=hasStaging?'block':'none';
-  if (hasStaging) {
-    const {totalAdaNet,tokenNets}=calcTradeNet(tradeSelected);
-    const c=totalAdaNet>=0?'var(--accent)':'var(--red)';
-    const txRows=[...tradeSelected].map(hash=>{
-      const tx=allTxs.find(t=>t.hash===hash); if(!tx) return '';
-      const {adaNet}=calcTxNet(tx);
-      const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-      const tc=adaNet>=0?'var(--accent)':'var(--red)';
-      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:3px;flex-wrap:wrap;">
-        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener" style="font-family:var(--mono);color:var(--blue);text-decoration:none;">${hash.slice(0,8)}…${hash.slice(-6)}</a>
-        <span style="color:var(--muted);">${date}</span>
-        <span style="font-family:var(--mono);color:${tc};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
-      </div>`;
-    }).join('');
-    const tokenRows=[...tokenNets.entries()].map(([unit,net])=>{
-      const name=formatAssetName(unit.slice(56))||'null';
-      const url=`https://adastat.net/tokens/${unit}`;
-      const tc=net>=0?'var(--accent)':'var(--red)';
-      const cost=net!==0&&totalAdaNet!==0?`<span style="color:var(--muted);font-size:10px;">${fmt(Math.abs(totalAdaNet/net),6)} ₳ each</span>`:'';
-      return `<div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;">
-        <span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span>
-        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a>${cost}
-      </div>`;
-    }).join('');
-    stagList.innerHTML=`${txRows}<div style="border-top:1px solid var(--border);padding-top:6px;margin-top:4px;">
-      <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${c};">${totalAdaNet>=0?'+':''}${fmt(totalAdaNet,4)} ₳</div>
-      ${tokenNets.size?`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 2px;">Token Cost Basis</div>${tokenRows}`:''}
-    </div>`;
-  }
-  list.innerHTML=lockedTrades.map(trade=>{
-    const {totalAdaNet,tokenNets}=calcTradeNet(trade.hashes);
-    const meta=TRADE_TYPE_META[trade.type]||TRADE_TYPE_META.other;
-    const c=totalAdaNet>=0?'var(--accent)':'var(--red)';
-    const txRows=[...trade.hashes].map(hash=>{
-      const tx=allTxs.find(t=>t.hash===hash); if(!tx) return '';
-      const {adaNet}=calcTxNet(tx);
-      const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-      const tc=adaNet>=0?'var(--accent)':'var(--red)';
-      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:3px;flex-wrap:wrap;">
-        <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener" style="font-family:var(--mono);color:var(--blue);text-decoration:none;">${hash.slice(0,8)}…${hash.slice(-6)}</a>
-        <span style="color:var(--muted);">${date}</span>
-        <span style="font-family:var(--mono);color:${tc};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
-      </div>`;
-    }).join('');
-    const tokenRows=[...tokenNets.entries()].map(([unit,net])=>{
-      const name=formatAssetName(unit.slice(56))||'null';
-      const url=`https://adastat.net/tokens/${unit}`;
-      const tc=net>=0?'var(--accent)':'var(--red)';
-      const cost=net!==0&&totalAdaNet!==0?`<span style="color:var(--muted);font-size:10px;">${fmt(Math.abs(totalAdaNet/net),6)} ₳ each</span>`:'';
-      return `<div style="display:flex;align-items:baseline;gap:6px;margin-top:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;">
-        <span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span>
-        <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a>${cost}
-      </div>`;
-    }).join('');
-    return `<div class="locked-trade" data-trade-id="${trade.id}" style="margin-bottom:0.75rem;padding-bottom:0.75rem;border-bottom:1px solid var(--border);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span style="font-size:12px;font-weight:600;color:var(--text);">${escHtml(trade.name||'Trade '+trade.id)}</span>
-          <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:99px;background:${meta.bg};color:${meta.color};">${meta.label}</span>
-        </div>
-        <button data-remove-trade="${trade.id}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0;flex-shrink:0;">✕</button>
-      </div>
-      <div style="margin-bottom:6px;">${txRows}</div>
-      <div style="border-top:1px solid var(--border);padding-top:6px;">
-        <div style="font-family:var(--mono);font-size:12px;font-weight:600;color:${c};margin-bottom:4px;">${totalAdaNet>=0?'+':''}${fmt(totalAdaNet,4)} ₳</div>
-        ${tokenNets.size?`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Token Cost Basis</div>${tokenRows}`:''}
-      </div>
+// Render a compact list of tx rows (hash link, date, ADA net)
+function tradeTxRows(hashes) {
+  return [...hashes].map(hash => {
+    const tx = allTxs.find(t => t.hash === hash);
+    if (!tx) return '';
+    const { adaNet } = calcTxNet(tx);
+    const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const color = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div style="display:flex; justify-content:space-between; gap:8px; font-size:11px; margin-bottom:3px; flex-wrap:wrap;">
+      <a href="https://cardanoscan.io/transaction/${hash}" target="_blank" rel="noopener" style="font-family:var(--mono); color:var(--blue); text-decoration:none;">${hash.slice(0, 8)}…${hash.slice(-6)}</a>
+      <span style="color:var(--muted);">${date}</span>
+      <span style="font-family:var(--mono); color:${color};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>
     </div>`;
   }).join('');
-
-  // totals
-  const totalsEl=document.getElementById('trades-totals');
-  if (!lockedTrades.length) { totalsEl.style.display='none'; return; }
-  let grandAdaNet=0; const grandTokenNets=new Map();
-  lockedTrades.forEach(trade=>{ const {totalAdaNet,tokenNets}=calcTradeNet(trade.hashes); grandAdaNet+=totalAdaNet; tokenNets.forEach((n,u)=>grandTokenNets.set(u,(grandTokenNets.get(u)||0)+n)); });
-  const gc=grandAdaNet>=0?'var(--accent)':'var(--red)';
-  const tokenTotalRows=[...grandTokenNets.entries()].map(([unit,net])=>{
-    const name=formatAssetName(unit.slice(56))||'null';
-    const url=`https://adastat.net/tokens/${unit}`;
-    const tc=net>=0?'var(--accent)':'var(--red)';
-    return `<div style="display:flex;align-items:baseline;gap:6px;font-size:11px;font-family:var(--mono);flex-wrap:wrap;margin-top:3px;"><span style="color:${tc};">${net>=0?'+':''}${fmt4sig(net)}</span><a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></div>`;
-  }).join('');
-  totalsEl.style.display='block';
-  totalsEl.innerHTML=`<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Total across all trades</div>
-    <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${gc};margin-bottom:4px;">${grandAdaNet>=0?'+':''}${fmt(grandAdaNet,4)} ₳</div>
-    ${grandTokenNets.size?tokenTotalRows:''}`;
 }
 
+// Render token net rows with optional cost-per-token calculation
+function tradeTokenRows(tokenNets, totalAdaNet) {
+  return [...tokenNets.entries()].map(([unit, net]) => {
+    const name  = formatAssetName(unit.slice(56)) || 'null';
+    const url   = `https://adastat.net/tokens/${unit}`;
+    const color = net >= 0 ? 'var(--accent)' : 'var(--red)';
+    // Cost per token = total ADA spent / tokens received (only for buys)
+    const cost  = net !== 0 && totalAdaNet !== 0
+      ? `<span style="color:var(--muted); font-size:10px;">${fmt(Math.abs(totalAdaNet / net), 6)} ₳ each</span>`
+      : '';
+    return `<div style="display:flex; align-items:baseline; gap:6px; margin-top:3px; font-size:11px; font-family:var(--mono); flex-wrap:wrap;">
+      <span style="color:${color};">${net >= 0 ? '+' : ''}${fmt4sig(net)}</span>
+      <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber); text-decoration:underline;">${escHtml(name)}</a>
+      ${cost}
+    </div>`;
+  }).join('');
+}
+
+function renderTradesSidebar() {
+  const sidebar  = document.getElementById('trades-sidebar');
+  const staging  = document.getElementById('trade-staging');
+  const stagList = document.getElementById('staging-list');
+  const list     = document.getElementById('trades-list');
+  const totalsEl = document.getElementById('trades-totals');
+
+  if (!tradeSelected.size && !lockedTrades.length) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+
+  // Staging area: active selection before locking in
+  staging.style.display = tradeSelected.size ? 'block' : 'none';
+  if (tradeSelected.size) {
+    const { totalAdaNet, tokenNets } = calcTradeNet(tradeSelected);
+    const color = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    stagList.innerHTML = `
+      ${tradeTxRows(tradeSelected)}
+      <div style="border-top:1px solid var(--border); padding-top:6px; margin-top:4px;">
+        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${color};">${totalAdaNet >= 0 ? '+' : ''}${fmt(totalAdaNet, 4)} ₳</div>
+        ${tokenNets.size
+          ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:4px 0 2px;">Token Cost Basis</div>
+             ${tradeTokenRows(tokenNets, totalAdaNet)}`
+          : ''}
+      </div>`;
+  }
+
+  // Locked trades list
+  list.innerHTML = lockedTrades.map(trade => {
+    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
+    const meta  = TRADE_TYPE_META[trade.type] || TRADE_TYPE_META.other;
+    const color = totalAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    return `<div class="locked-trade" data-trade-id="${trade.id}" style="margin-bottom:0.75rem; padding-bottom:0.75rem; border-bottom:1px solid var(--border);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; gap:6px;">
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <span style="font-size:12px; font-weight:600; color:var(--text);">${escHtml(trade.name || 'Trade ' + trade.id)}</span>
+          <span style="font-size:10px; font-weight:600; padding:2px 7px; border-radius:99px; background:${meta.bg}; color:${meta.color};">${meta.label}</span>
+        </div>
+        <button data-remove-trade="${trade.id}" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px; padding:0; flex-shrink:0;">✕</button>
+      </div>
+      <div style="margin-bottom:6px;">${tradeTxRows(trade.hashes)}</div>
+      <div style="border-top:1px solid var(--border); padding-top:6px;">
+        <div style="font-family:var(--mono); font-size:12px; font-weight:600; color:${color}; margin-bottom:4px;">${totalAdaNet >= 0 ? '+' : ''}${fmt(totalAdaNet, 4)} ₳</div>
+        ${tokenNets.size
+          ? `<div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:3px;">Token Cost Basis</div>
+             ${tradeTokenRows(tokenNets, totalAdaNet)}`
+          : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Grand totals across all locked trades
+  if (!lockedTrades.length) { totalsEl.style.display = 'none'; return; }
+
+  let grandAdaNet = 0;
+  const grandTokenNets = new Map();
+  lockedTrades.forEach(trade => {
+    const { totalAdaNet, tokenNets } = calcTradeNet(trade.hashes);
+    grandAdaNet += totalAdaNet;
+    tokenNets.forEach((n, u) => grandTokenNets.set(u, (grandTokenNets.get(u) || 0) + n));
+  });
+
+  const gc = grandAdaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+  totalsEl.style.display = 'block';
+  totalsEl.innerHTML = `
+    <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Total across all trades</div>
+    <div style="font-family:var(--mono); font-size:13px; font-weight:600; color:${gc}; margin-bottom:4px;">${grandAdaNet >= 0 ? '+' : ''}${fmt(grandAdaNet, 4)} ₳</div>
+    ${grandTokenNets.size ? tradeTokenRows(grandTokenNets, grandAdaNet) : ''}`;
+}
+
+// Lock in the current staging selection as a named trade
 document.getElementById('lock-trade-btn').addEventListener('click', () => {
   if (!tradeSelected.size) return;
-  lockedTrades.push({ id:++tradeIdCounter, name:document.getElementById('trade-name-input').value.trim(), type:document.getElementById('trade-type-select').value, hashes:new Set(tradeSelected) });
+  lockedTrades.push({
+    id:     ++tradeIdCounter,
+    name:   document.getElementById('trade-name-input').value.trim(),
+    type:   document.getElementById('trade-type-select').value,
+    hashes: new Set(tradeSelected),
+  });
   tradeSelected.clear();
-  document.getElementById('trade-name-input').value='';
-  document.getElementById('trade-type-select').value='trade';
+  document.getElementById('trade-name-input').value  = '';
+  document.getElementById('trade-type-select').value = 'trade';
   renderTradesSidebar();
 });
-document.getElementById('clear-trade-btn').addEventListener('click', () => { tradeSelected.clear(); renderTradesSidebar(); });
-document.getElementById('trades-list').addEventListener('click', e => {
-  const btn=e.target.closest('[data-remove-trade]');
-  if (btn) { const idx=lockedTrades.findIndex(t=>t.id===parseInt(btn.dataset.removeTrade)); if(idx!==-1) lockedTrades.splice(idx,1); renderTradesSidebar(); }
+
+document.getElementById('clear-trade-btn').addEventListener('click', () => {
+  tradeSelected.clear();
+  renderTradesSidebar();
 });
 
-// ── Event delegation ───────────────────────────────────────────────
-document.getElementById('stake').addEventListener('keydown', e => { if (e.key==='Enter') fetchAccount(); });
-document.addEventListener('keydown', e => { if (e.key==='Escape') closePnlPopup(); });
+// Remove a locked trade when its ✕ button is clicked
+document.getElementById('trades-list').addEventListener('click', e => {
+  const btn = e.target.closest('[data-remove-trade]');
+  if (!btn) return;
+  const idx = lockedTrades.findIndex(t => t.id === parseInt(btn.dataset.removeTrade));
+  if (idx !== -1) lockedTrades.splice(idx, 1);
+  renderTradesSidebar();
+});
 
-const txLogRow = document.getElementById('tx-log-row');
+// =================================================================
+// GLOBAL EVENT LISTENERS
+// =================================================================
+
+// Allow pressing Enter in the stake address field to trigger search
+document.getElementById('stake').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchAccount();
+});
+
+// Escape key closes the P&L popup
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePnlPopup();
+});
+
+// Keep the P&L staging panel sticky while the transaction table is on screen.
+// Uses IntersectionObserver to detect when the table scrolls out of view.
+const txLogRow     = document.getElementById('tx-log-row');
 const stagingPanel = document.getElementById('pnl-staging-panel');
-new IntersectionObserver(entries => entries.forEach(entry => {
-  if (pnlStaged.size) stagingPanel.style.position = entry.isIntersecting ? 'sticky' : 'static';
-}), { threshold: 0.01 }).observe(txLogRow);
+new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (pnlStaged.size) {
+      stagingPanel.style.position = entry.isIntersecting ? 'sticky' : 'static';
+    }
+  });
+}, { threshold: 0.01 }).observe(txLogRow);
 
+// Single delegated listener for all clicks inside the transaction table body
 document.getElementById('tx-body').addEventListener('click', e => {
+
+  // + button: toggle this tx in/out of the P&L staging set
   const pnlBtn = e.target.closest('[data-pnl-hash]');
   if (pnlBtn) { togglePnlStaged(pnlBtn.dataset.pnlHash); return; }
 
+  // "Show N more" / "Show less" expand button inside UTxO lists
   const expandBtn = e.target.closest('.utxo-expand-btn');
   if (expandBtn) {
-    const expanded = expandBtn.dataset.expanded==='true';
-    const tx = allTxs.find(t=>t.hash===expandBtn.dataset.hash);
+    const expanded = expandBtn.dataset.expanded === 'true';
+    const tx       = allTxs.find(t => t.hash === expandBtn.dataset.hash);
     if (!tx) return;
-    const count = expandBtn.dataset.side==='inputs' ? tx.inputs.length : tx.outputs.length;
-    expandBtn.closest('.utxo-list').querySelectorAll('.utxo-entry').forEach((el,i)=>{ if(i>=COLLAPSE_THRESHOLD) el.classList.toggle('hidden',expanded); });
+    const count = expandBtn.dataset.side === 'inputs' ? tx.inputs.length : tx.outputs.length;
+    expandBtn.closest('.utxo-list').querySelectorAll('.utxo-entry').forEach((el, i) => {
+      if (i >= COLLAPSE_THRESHOLD) el.classList.toggle('hidden', expanded);
+    });
     expandBtn.dataset.expanded = !expanded;
-    expandBtn.textContent = expanded ? `Show ${count-COLLAPSE_THRESHOLD} more ▾` : 'Show less ▴';
+    expandBtn.textContent = expanded
+      ? `Show ${count - COLLAPSE_THRESHOLD} more ▾`
+      : 'Show less ▴';
   }
 });
+
 </script>
 </body>
 </html>
