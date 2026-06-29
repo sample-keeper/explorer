@@ -1,4 +1,4 @@
-<!-- v3.8 -->
+<!-- v3.9 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -975,10 +975,11 @@ document.getElementById('pnl-popup-confirm').addEventListener('click', () => {
     pnlRoles.get(pnlPopupUnit).set(hash, pnlPopupRole);
   });
 
+  const assignedUnit = pnlPopupUnit;
   closePnlPopup();
   renderTokenPnl();
   // open that token section
-  const body = document.getElementById(`pnl-body-${pnlPopupUnit.slice(0,16)}`);
+  const body = document.getElementById(`pnl-body-${assignedUnit.slice(0,16)}`);
   if (body) body.classList.add('open');
 });
 
