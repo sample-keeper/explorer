@@ -1,4 +1,4 @@
-<!-- v3.3 -->
+<!-- v3.4 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -275,6 +275,26 @@
 </header>
 
 <main>
+  <!-- P&L batch assign popup -->
+  <div id="pnl-popup" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:101; align-items:center; justify-content:center;">
+    <div style="background:var(--surface); border:1px solid var(--border2); border-radius:14px; padding:1.5rem; width:460px; max-width:94vw; max-height:90vh; overflow-y:auto;">
+      <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Assign transactions to Token P&L</h3>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Selected transactions:</div>
+      <div id="pnl-popup-txlist" style="margin-bottom:12px; display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Select a token:</div>
+      <div id="pnl-popup-tokens" style="max-height:180px; overflow-y:auto; margin-bottom:12px; display:flex; flex-direction:column; gap:4px;"></div>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Role:</div>
+      <div style="display:flex; gap:8px; margin-bottom:1rem;">
+        <button id="pnl-popup-buy"  class="btn" style="flex:1; padding:8px; font-size:13px; background:var(--accent-dim); color:var(--accent); border:1px solid var(--accent);">Buy</button>
+        <button id="pnl-popup-sell" class="btn" style="flex:1; padding:8px; font-size:13px; background:var(--red-dim); color:var(--red); border:1px solid var(--red);">Sell</button>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closePnlPopup()">Cancel</button>
+        <button class="btn" id="pnl-popup-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Label popup -->
   <div class="popup-overlay" id="popup-overlay" onclick="closePopup(event)">
     <div class="popup">
@@ -743,8 +763,10 @@ function renderTable() {
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">
           ${tx.hash.slice(0, 8)}…${tx.hash.slice(-6)}
         </a>
+        <button class="trade-add-btn" data-pnl-hash="${tx.hash}" title="Add to Token P&L">+</button>
         <button class="trade-add-btn${portfolio.has(tx.hash) ? ' active' : ''}" data-hash="${tx.hash}"
-          title="${portfolio.has(tx.hash) ? 'Remove from portfolio' : 'Add to portfolio'}">${portfolio.has(tx.hash) ? '✓' : '+'}</button>
+          title="${portfolio.has(tx.hash) ? 'Remove from portfolio' : 'Add to portfolio'}"
+          style="font-size:10px; margin-left:2px;">${portfolio.has(tx.hash) ? '★' : '☆'}</button>
       </td>
       <td class="col-date" style="vertical-align:middle; font-size:12px; color:var(--muted);">${date}</td>
       <td class="col-summary" style="vertical-align:middle;">
@@ -800,7 +822,111 @@ function exportCSV() {
   a.click();
 }
 
-// ── Token P&L ──────────────────────────────────────────────────────
+// ── P&L popup ──────────────────────────────────────────────────────
+let pnlPopupHash     = null;
+let pnlPopupUnit     = null;
+let pnlPopupRole     = 'buy';
+
+function openPnlPopup(hash) {
+  pnlPopupHash = hash;
+  pnlPopupUnit = null;
+  pnlPopupRole = 'buy';
+
+  const tx = allTxs.find(t => t.hash === hash);
+  if (!tx) return;
+
+  const { adaNet, tokenNet } = calcTxNet(tx);
+  const date  = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const short = hash.slice(0, 10) + '…' + hash.slice(-6);
+  const adaColor = adaNet >= 0 ? 'var(--accent)' : 'var(--red)';
+
+  document.getElementById('pnl-popup-tx').innerHTML =
+    `${short} &nbsp;<span style="color:var(--muted);">${date}</span> &nbsp;<span style="font-family:var(--mono); color:${adaColor};">${adaNet >= 0 ? '+' : ''}${fmt(adaNet, 4)} ₳</span>`;
+
+  // build token list: all tokens in pnlTokenTxs + any tokens in this tx
+  const allUnitsForPopup = new Set([...pnlTokenTxs.keys()]);
+  tokenNet.forEach((_, unit) => allUnitsForPopup.add(unit));
+
+  const tokensEl = document.getElementById('pnl-popup-tokens');
+  if (allUnitsForPopup.size === 0) {
+    tokensEl.innerHTML = `<div style="font-size:12px; color:var(--muted); font-style:italic;">No tokens found. Search a wallet first.</div>`;
+  } else {
+    tokensEl.innerHTML = [...allUnitsForPopup].map(unit => {
+      const name    = formatAssetName(unit.slice(56)) || 'null';
+      const tNet    = tokenNet.get(unit);
+      const tStr    = tNet !== undefined ? ` <span style="font-family:var(--mono); font-size:10px; color:${tNet>=0?'var(--accent)':'var(--red)'};">${tNet>=0?'+':''}${fmt4sig(tNet)}</span>` : '';
+      const alreadyAssigned = pnlTokenTxs.get(unit)?.has(hash);
+      const role    = alreadyAssigned ? (pnlRoles.get(unit)?.get(hash) || 'none') : '';
+      const roleTag = role && role !== 'none' ? ` <span style="font-size:10px; color:var(--muted);">[${role}]</span>` : '';
+      return `<div class="pnl-token-option" data-unit="${unit}"
+          style="padding:6px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px;
+                 border:1px solid var(--border); background:var(--surface2);">
+        <span style="color:var(--amber); font-size:12px; font-weight:600;">${escHtml(name)}</span>
+        ${tStr}${roleTag}
+      </div>`;
+    }).join('');
+
+    tokensEl.querySelectorAll('.pnl-token-option').forEach(el => {
+      el.addEventListener('click', () => {
+        tokensEl.querySelectorAll('.pnl-token-option').forEach(e => e.style.borderColor = 'var(--border)');
+        el.style.borderColor = 'var(--accent)';
+        pnlPopupUnit = el.dataset.unit;
+      });
+    });
+  }
+
+  // role button states
+  updatePnlRoleBtns();
+  document.getElementById('pnl-popup').style.display = 'flex';
+}
+
+function updatePnlRoleBtns() {
+  const buyBtn  = document.getElementById('pnl-popup-buy');
+  const sellBtn = document.getElementById('pnl-popup-sell');
+  buyBtn.style.opacity  = pnlPopupRole === 'buy'  ? '1' : '0.4';
+  sellBtn.style.opacity = pnlPopupRole === 'sell' ? '1' : '0.4';
+}
+
+document.getElementById('pnl-popup-buy').addEventListener('click', () => {
+  pnlPopupRole = 'buy'; updatePnlRoleBtns();
+});
+document.getElementById('pnl-popup-sell').addEventListener('click', () => {
+  pnlPopupRole = 'sell'; updatePnlRoleBtns();
+});
+
+document.getElementById('pnl-popup-confirm').addEventListener('click', () => {
+  if (!pnlPopupUnit || !pnlPopupHash) { alert('Please select a token first.'); return; }
+  const tx = allTxs.find(t => t.hash === pnlPopupHash);
+  if (!tx) return;
+  const { adaNet, tokenNet } = calcTxNet(tx);
+  const tNet = tokenNet.get(pnlPopupUnit) || 0;
+  const date = new Date(tx.time * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+  if (!pnlTokenTxs.has(pnlPopupUnit)) pnlTokenTxs.set(pnlPopupUnit, new Map());
+  if (!pnlRoles.has(pnlPopupUnit))    pnlRoles.set(pnlPopupUnit, new Map());
+
+  pnlTokenTxs.get(pnlPopupUnit).set(pnlPopupHash, { hash: pnlPopupHash, date, tokenNet: tNet, adaNet });
+  pnlRoles.get(pnlPopupUnit).set(pnlPopupHash, pnlPopupRole);
+
+  closePnlPopup();
+  renderTokenPnl();
+  // open that token's section
+  const body = document.getElementById(`pnl-body-${pnlPopupUnit.slice(0,16)}`);
+  if (body) body.classList.add('open');
+});
+
+function closePnlPopup() {
+  document.getElementById('pnl-popup').style.display = 'none';
+  pnlPopupHash = null; pnlPopupUnit = null;
+}
+
+document.getElementById('pnl-popup').addEventListener('click', e => {
+  if (e.target === document.getElementById('pnl-popup')) closePnlPopup();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePnlPopup();
+});
 // pnlRoles:   Map<unit, Map<hash, 'buy'|'sell'|'none'>>
 // pnlTokenTxs: Map<unit, Map<hash, { hash, date, tokenNet, adaNet }>>
 //   — tokenNet=0 for manually-added txs with no token flow
@@ -950,11 +1076,6 @@ function renderTokenPnl() {
       </div>
       <div class="pnl-token-body${isOpen?' open':''}" id="${bodyId}" data-unit="${unit}">
         ${txRows}
-        <button onclick="addTxToPnl('${unit}')"
-          style="margin:8px 0 4px; width:100%; background:none; border:1px dashed var(--border2);
-                 border-radius:6px; color:var(--muted); font-size:11px; padding:4px; cursor:pointer;">
-          + Add transaction
-        </button>
         <div class="pnl-summary-box" id="pnl-sum-${unit.slice(0,16)}">${summary}</div>
       </div>
     </div>`;
@@ -1603,8 +1724,11 @@ document.getElementById('tx-body').addEventListener('click', e => {
   const addr = e.target.closest('.utxo-addr');
   if (addr) { openPopup(addr.dataset.addr); return; }
 
-  const tradeBtn = e.target.closest('.trade-add-btn');
-  if (tradeBtn) { togglePortfolio(tradeBtn.dataset.hash); return; }
+  const pnlBtn = e.target.closest('[data-pnl-hash]');
+  if (pnlBtn) { openPnlPopup(pnlBtn.dataset.pnlHash); return; }
+
+  const portfolioBtn = e.target.closest('[data-hash].trade-add-btn');
+  if (portfolioBtn) { togglePortfolio(portfolioBtn.dataset.hash); return; }
 
   const expandBtn = e.target.closest('.utxo-expand-btn');
   if (expandBtn) {
@@ -1614,7 +1738,6 @@ document.getElementById('tx-body').addEventListener('click', e => {
     const tx   = allTxs.find(t => t.hash === hash);
     if (!tx) return;
     const count = side === 'inputs' ? tx.inputs.length : tx.outputs.length;
-    // find the parent utxo-list and toggle hidden entries
     const list = expandBtn.closest('.utxo-list');
     list.querySelectorAll('.utxo-entry').forEach((el, i) => {
       if (i >= COLLAPSE_THRESHOLD) el.classList.toggle('hidden', expanded);
