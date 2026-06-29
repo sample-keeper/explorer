@@ -1,4 +1,4 @@
-<!-- v4.5 -->
+<!-- v4.6 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -416,23 +416,38 @@ async function fetchAccount() {
       };
     });
 
-    // Collect all unique token units across every UTxO, then fetch decimals
-    // for any tokens we haven't seen before
+    // Look up token decimals using a local table of well-known tokens.
+    // We avoid fetching /assets/{unit} from the browser because Blockfrost
+    // blocks that endpoint via CORS on custom domains.
+    // Any token not in the table defaults to 0 decimals.
+    const KNOWN_DECIMALS = {
+      // ADA-denominated stablecoins / wrapped assets (6 decimals like ADA)
+      'f66d78b4a3cb3d37afa0ec36461e51ecbbd728c2a2d70354': 6, // DJED
+      '8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd873': 6, // SHEN
+      '25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935573696e': 6, // USDM
+      // MIN, SUNDAE, WMT etc — 6 decimals
+      '29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6d696e': 6,   // MIN
+      '9a9693a9a37912a5097918f97918d15240c92ab729a0b7c4aa144d77': 6,         // SUNDAE
+      '1d7f33bd23d85e1a25d87d86fac4f199c3197a2f7afeb662a0f34e1': 6,         // WMT
+      // iAssets (6 decimals)
+      'f66d78b4a3cb3d37afa0ec36461e51ecbbd728c2a2d703548': 6,
+    };
+
     const allUnits = new Set();
     allTxs.forEach(tx =>
       [...tx.inputs, ...tx.outputs].forEach(u =>
         (u.amount || []).forEach(a => { if (a.unit !== 'lovelace') allUnits.add(a.unit); })
       )
     );
-    const uncached = [...allUnits].filter(u => !tokenDecimals.has(u));
-    if (uncached.length) {
-      setStatus(`<span class="spinner"></span> Fetching decimals for ${uncached.length} tokens…`);
-      await Promise.all(uncached.map(unit =>
-        bf(`/assets/${unit}`)
-          .then(a => tokenDecimals.set(unit, a.metadata?.decimals ?? a.onchain_metadata?.decimals ?? 0))
-          .catch(() => tokenDecimals.set(unit, 0))
-      ));
-    }
+
+    // Apply known decimals; default to 0 for anything not in the table
+    allUnits.forEach(unit => {
+      if (!tokenDecimals.has(unit)) {
+        // Check if the unit starts with any known policy prefix
+        const known = Object.entries(KNOWN_DECIMALS).find(([prefix]) => unit.startsWith(prefix));
+        tokenDecimals.set(unit, known ? known[1] : 0);
+      }
+    });
 
     renderMeta(acct, txList.length);
     currentPage = 1;
