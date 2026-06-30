@@ -1,4 +1,4 @@
-<!-- v6.4 -->
+<!-- v7.3 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -71,9 +71,11 @@
     .skeleton-bar { height:12px; border-radius:4px; background:linear-gradient(90deg,var(--surface2) 25%,var(--surface) 50%,var(--surface2) 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; }
     @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-    /* Two-column layout: Token P&L (left) and Transaction Log (right) */
+    /* Two-column layout: Token P&L (left) and Transaction Log (right).
+       Each column scrolls independently — sticky to the viewport with
+       its own overflow, so scrolling one doesn't move the other. */
     .split-row { display:flex; gap:1rem; align-items:flex-start; width:100%; }
-    .split-col-pnl { flex:0 0 38%; min-width:340px; max-width:560px; }
+    .split-col-pnl { flex:0 0 38%; min-width:340px; max-width:560px; position:sticky; top:1rem; max-height:calc(100vh - 2rem); overflow-y:auto; }
     .split-col-log { flex:1 1 auto; min-width:0; }
 
     /* Table */
@@ -84,7 +86,7 @@
     td { padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:top; }
     tr:last-child td { border-bottom:none; }
     tr:hover td { background:rgba(255,255,255,0.02); }
-    .col-hash { width:18%; } .col-date { width:14%; } .col-summary { width:68%; }
+    .col-hash { width:22%; } .col-date { width:13%; } .col-summary { width:65%; }
     .hash-cell { font-family:var(--mono); font-size:11px; }
     .hash-cell a { color:var(--blue); text-decoration:none; }
     .hash-cell a:hover { text-decoration:underline; }
@@ -144,7 +146,7 @@
     .pnl-add-btn:disabled { opacity:0.3; cursor:not-allowed; }
 
     /* Misc */
-    .pagination { display:flex; align-items:center; gap:10px; margin-top:1rem; justify-content:center; }
+    .pagination { display:flex; align-items:center; gap:6px; margin-top:1rem; justify-content:center; flex-wrap:wrap; }
     .pagination span { font-size:13px; color:var(--muted); }
     .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:-2px; }
     @keyframes spin { to { transform:rotate(360deg); } }
@@ -153,6 +155,7 @@
     @media (max-width:900px) {
       .split-row { flex-direction:column; }
       .split-col-pnl, .split-col-log { flex:1 1 auto; max-width:none; min-width:0; width:100%; }
+      .split-col-pnl { position:static; max-height:none; overflow-y:visible; }
     }
     @media (max-width:700px) { .col-date { display:none; } .col-hash { width:28%; } .col-summary { width:72%; } main { padding:1rem 1rem 3rem; } }
   </style>
@@ -265,6 +268,13 @@
       <button class="btn btn-ghost btn-sm" id="tx-filter-clear-btn" style="margin-left:auto;">✕ Clear filter</button>
     </div>
 
+    <!-- Address filter banner — shown only when an address filter is active -->
+    <div id="addr-filter-banner" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:12px;">
+      <span style="color:var(--muted);">Filtered to address</span>
+      <span id="addr-filter-name" style="font-family:var(--mono);color:var(--blue);font-weight:600;word-break:break-all;"></span>
+      <button class="btn btn-ghost btn-sm" id="addr-filter-clear-btn" style="margin-left:auto;flex-shrink:0;">✕ Clear filter</button>
+    </div>
+
     <!-- Side-by-side: Token P&L (left) + Transaction Log (right) -->
     <div class="split-row">
 
@@ -345,6 +355,13 @@ let currentPage = 1;
 // since the filter itself is the explicit token context).
 let activeFilterUnit   = null;
 let activeFilterWindow = 5;
+
+// Address filter — when active, the Transaction Log shows only
+// transactions where this exact address appears as an input or
+// output. Mutually exclusive with the token filter (activating one
+// clears the other) to keep the displayed rows unambiguous.
+let activeFilterAddr = null;
+
 const PAGE_SIZE          = 25;
 const COLLAPSE_THRESHOLD = 5;
 const tokenDecimals      = new Map();
@@ -449,6 +466,8 @@ async function fetchAccount() {
   userDecimalOverrides.clear();
   activeFilterUnit = null;
   document.getElementById('tx-filter-banner').style.display = 'none';
+  activeFilterAddr = null;
+  document.getElementById('addr-filter-banner').style.display = 'none';
   setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
@@ -551,12 +570,16 @@ function importJSON(file) {
       userDecimalOverrides.clear();
       activeFilterUnit = null;
       document.getElementById('tx-filter-banner').style.display = 'none';
+      activeFilterAddr = null;
+      document.getElementById('addr-filter-banner').style.display = 'none';
 
       // Restore state from the file
       myAddresses = new Set(payload.myAddresses || []);
       (payload.tokenDecimals || []).forEach(([unit,dec]) => tokenDecimals.set(unit, dec));
       (payload.userDecimalOverrides || []).forEach(unit => userDecimalOverrides.add(unit));
       (payload.labels || []).forEach(([addr,l]) => labels.set(addr, l));
+      (payload.pnlManualEntries || []).forEach(([unit, entries]) => pnlManualEntries.set(unit, new Map(entries)));
+      (payload.pnlRemovedAuto || []).forEach(([unit, hashes]) => pnlRemovedAuto.set(unit, new Set(hashes)));
       totalStakingRewards = payload.totalStakingRewards || 0;
       allTxs = payload.allTxs;
 
@@ -638,6 +661,77 @@ function isSingleTxSwap(tx) {
   if(tokenNet.size===0) return false;
   return (adaNet<-0.5&&[...tokenNet.values()].some(n=>n>0))
       || (adaNet>0.5 &&[...tokenNet.values()].some(n=>n<0));
+}
+
+// =================================================================
+// TRANSACTION CLASSIFICATION
+// Produces a short type label + icon + (for swaps) a brief
+// counterparty hint, shown under the tx hash to make the log
+// easier to scan at a glance.
+// =================================================================
+
+// Pick the "other side" of a transaction: the non-wallet address
+// with the largest ADA amount among inputs/outputs. Used only for
+// swap counterparty display (last 5-6 chars of the address).
+function findCounterpartyAddr(tx) {
+  const candidates = [];
+  (tx.inputs||[]).forEach(u => { if (!myAddresses.has(u.address)) {
+    const ada = u.amount?.find(a=>a.unit==='lovelace');
+    candidates.push({ addr:u.address, ada: ada?parseInt(ada.quantity):0 });
+  }});
+  (tx.outputs||[]).forEach(u => { if (!myAddresses.has(u.address)) {
+    const ada = u.amount?.find(a=>a.unit==='lovelace');
+    candidates.push({ addr:u.address, ada: ada?parseInt(ada.quantity):0 });
+  }});
+  if (!candidates.length) return null;
+  candidates.sort((a,b)=>b.ada-a.ada);
+  return candidates[0].addr;
+}
+
+// Classify a transaction into a type for display purposes.
+// Returns { icon, label, detail } where detail is optional extra
+// context (e.g. swap token-for-ADA breakdown, counterparty tail).
+function classifyTx(tx) {
+  const { adaNet, tokenNet } = calcTxNet(tx);
+
+  const allInternal = [...(tx.inputs||[]), ...(tx.outputs||[])].every(u => myAddresses.has(u.address));
+  if (allInternal && (tx.inputs||[]).length && (tx.outputs||[]).length) {
+    return { icon:'🔁', label:'Internal transfer' };
+  }
+
+  if (isSingleTxSwap(tx)) {
+    // Find the token side of the swap (the one with non-zero net)
+    const [unit, tNet] = [...tokenNet.entries()][0] || [];
+    const name = unit ? (formatAssetName(unit.slice(56)) || 'token') : 'token';
+    const cpAddr = findCounterpartyAddr(tx);
+    const cpTail = cpAddr ? cpAddr.slice(-6) : null;
+    const detail = unit
+      ? (tNet > 0
+          ? `${fmt(Math.abs(adaNet),2)} ₳ → ${fmt4sig(tNet)} ${name}`
+          : `${fmt4sig(Math.abs(tNet))} ${name} → ${fmt(adaNet,2)} ₳`)
+      : '';
+    return { icon:'⇄', label:'Swap', detail, counterparty: cpTail };
+  }
+
+  if (tokenNet.size > 0) {
+    // Token moved without a clean ADA-for-token swap pattern
+    return { icon:'📦', label:'Token transfer' };
+  }
+
+  if (adaNet > 0) {
+    // Heuristic: ADA in, no tokens, not a swap — likely a reward
+    // withdrawal or a plain incoming payment. We can't reliably tell
+    // these apart from tx data alone (Blockfrost's rewards endpoint
+    // is epoch-level, not tied to a specific tx hash), so we label
+    // it ambiguously rather than claim false certainty.
+    return { icon:'🎁', label:'Possible reward / ADA received' };
+  }
+
+  if (adaNet < 0) {
+    return { icon:'↑', label:'Sent ADA' };
+  }
+
+  return { icon:'•', label:'No wallet change' };
 }
 
 // =================================================================
@@ -733,6 +827,22 @@ function collateralDetails(tx) {
     </div></details>`;
 }
 
+// Return every distinct labeled address (any address, not just our
+// own wallet's) that appears among this transaction's inputs or
+// outputs. Used to surface label chips next to the Inputs/Outputs
+// toggle so labeled counterparties are visible without expanding.
+function getLabeledAddressesForTx(tx) {
+  const seen = new Set();
+  const result = [];
+  [...(tx.inputs||[]), ...(tx.outputs||[])].forEach(u => {
+    const addr = u.address;
+    if (!addr || seen.has(addr)) return;
+    const label = labels.get(addr);
+    if (label) { seen.add(addr); result.push(label); }
+  });
+  return result;
+}
+
 // =================================================================
 // TOKEN FILTER — show only txs touching a given token, plus N
 // surrounding transactions (chronologically) for context. While
@@ -742,6 +852,8 @@ function collateralDetails(tx) {
 
 function filterTxLogByToken(unit, name) {
   activeFilterUnit = unit;
+  activeFilterAddr = null; // mutually exclusive with address filter
+  document.getElementById('addr-filter-banner').style.display = 'none';
   currentPage = 1;
   document.getElementById('tx-filter-banner').style.display = 'flex';
   document.getElementById('tx-filter-token-name').textContent = name;
@@ -765,6 +877,38 @@ document.getElementById('tx-filter-window').addEventListener('input', e => {
   currentPage = 1;
   renderTable();
 });
+
+// Activate the address filter: show only txs where this address
+// appears in any input or output. Mutually exclusive with the token
+// filter — activating this clears that one, and vice versa.
+function filterTxLogByAddr(addr) {
+  activeFilterAddr = addr;
+  activeFilterUnit = null; // mutually exclusive with token filter
+  document.getElementById('tx-filter-banner').style.display = 'none';
+  currentPage = 1;
+  document.getElementById('addr-filter-banner').style.display = 'flex';
+  document.getElementById('addr-filter-name').textContent = addr;
+  renderTable();
+  renderTokenPnl();
+}
+
+function clearAddrFilter() {
+  activeFilterAddr = null;
+  currentPage = 1;
+  document.getElementById('addr-filter-banner').style.display = 'none';
+  renderTable();
+}
+
+document.getElementById('addr-filter-clear-btn').addEventListener('click', clearAddrFilter);
+
+// Return every transaction (newest-first, matching allTxs order) that
+// has this exact address among its inputs or outputs.
+function getFilteredTxListByAddr(addr) {
+  return allTxs.filter(tx =>
+    (tx.inputs||[]).some(u => u.address === addr) ||
+    (tx.outputs||[]).some(u => u.address === addr)
+  );
+}
 
 // Given a token unit, return the chronologically-sorted list of
 // transactions that should be shown: every tx where the wallet's
@@ -802,6 +946,14 @@ function isInTokenPnl(unit, hash) {
   return isAutoAnchor && !isRemoved;
 }
 
+// Return every token unit this transaction currently belongs to in
+// the P&L (auto-detected or manually added, minus removed). Used to
+// show "in P&L" chips on each Transaction Log row.
+function getTokensForTx(hash) {
+  const units = new Set([...pnlData.keys(), ...pnlManualEntries.keys()]);
+  return [...units].filter(unit => isInTokenPnl(unit, hash));
+}
+
 // Toggle a tx in/out of the active filtered token's P&L
 function togglePnlMembership(hash) {
   if (!activeFilterUnit) return;
@@ -835,16 +987,31 @@ function togglePnlMembership(hash) {
 function renderTable() {
   if(!allTxs.length) return;
 
-  let sourceList; // array of { tx, isAnchor }
+  let sourceList; // array of { tx, isAnchor, groupStart? }
   if (activeFilterUnit) {
-    sourceList = getFilteredTxList(activeFilterUnit, activeFilterWindow).reverse(); // newest-first
+    const reversed = getFilteredTxList(activeFilterUnit, activeFilterWindow).reverse(); // newest-first
+    // Recompute group boundaries directly on display order: a gap
+    // exists wherever consecutive transactions in the filtered list
+    // aren't adjacent in the full chronological transaction history
+    // (i.e. there's at least one excluded transaction between them).
+    // We detect this using each tx's position in the full timeline.
+    const chronoIndexOf = new Map([...allTxs].reverse().map((tx, i) => [tx.hash, i]));
+    reversed.forEach((item, idx) => {
+      if (idx === 0) { item.groupStart = true; return; }
+      const prevIdx = chronoIndexOf.get(reversed[idx - 1].tx.hash);
+      const curIdx  = chronoIndexOf.get(item.tx.hash);
+      item.groupStart = curIdx !== prevIdx - 1; // not chronologically adjacent
+    });
+    sourceList = reversed;
+  } else if (activeFilterAddr) {
+    sourceList = getFilteredTxListByAddr(activeFilterAddr).map(tx => ({ tx, isAnchor:false }));
   } else {
     sourceList = allTxs.map(tx => ({ tx, isAnchor:false }));
   }
 
   const page = sourceList.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
 
-  document.getElementById('tx-body').innerHTML=page.map(({tx,isAnchor})=>{
+  document.getElementById('tx-body').innerHTML=page.map(({tx,isAnchor,groupStart},pageIdx)=>{
     const {adaNet,tokenNet}=calcTxNet(tx);
     const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
     const adaCol=adaNet>=0?'var(--accent)':'var(--red)';
@@ -855,10 +1022,20 @@ function renderTable() {
       const c=net>=0?'var(--accent)':'var(--red)';
       return `<span style="font-family:var(--mono);font-size:11px;color:${c};margin-right:10px;">${net>=0?'+':''}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></span>`;
     }).join('');
-    const isSwap=isSingleTxSwap(tx);
+    const txLabels = getLabeledAddressesForTx(tx);
+    const MAX_LABEL_CHIPS = 2;
+    const visibleLabels = txLabels.slice(0, MAX_LABEL_CHIPS);
+    const extraLabelCount = txLabels.length - visibleLabels.length;
+    const labelChipsHtml = visibleLabels.map(l =>
+      `<span class="label-chip ${l.color}">${escHtml(l.name)}</span>`
+    ).join('') + (extraLabelCount > 0
+      ? `<span class="label-chip" style="background:var(--surface2);color:var(--muted);">+${extraLabelCount}</span>`
+      : '');
+
     const utxoDetail=`<details style="margin-top:6px;">
-      <summary style="font-size:10px;color:var(--muted);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;">
+      <summary style="font-size:10px;color:var(--muted);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
         <span>▸ Inputs / Outputs</span><span style="color:var(--border2);">·</span><span>${tx.inputs.length} in / ${tx.outputs.length} out</span>
+        ${labelChipsHtml ? `<span style="margin-left:auto;display:inline-flex;gap:4px;">${labelChipsHtml}</span>` : ''}
       </summary>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;padding:8px;background:var(--surface2);border-radius:8px;">
         <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Inputs</div>${utxoRows(tx.inputs,tx.hash,'inputs')}</div>
@@ -871,41 +1048,131 @@ function renderTable() {
       ? (isMember ? 'Remove from this token\'s P&L' : 'Add to this token\'s P&L')
       : 'Filter to a token first (click 🔎 in Token P&L) to enable';
 
-    return `<tr${isAnchor?' class="tx-row-anchor"':''}>
+    // Tokens this tx is currently part of in the P&L (any token, not
+    // just the active filter), shown as small amber chips next to the
+    // add/remove button and again as a line under the type label.
+    const pnlUnits = getTokensForTx(tx.hash);
+    const pnlNames = pnlUnits.map(u => formatAssetName(u.slice(56)) || 'null');
+    const MAX_CHIPS = 2;
+    const visibleNames = pnlNames.slice(0, MAX_CHIPS);
+    const extraCount = pnlNames.length - visibleNames.length;
+    const chipHtml = visibleNames.map(n =>
+      `<span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:var(--amber-dim);color:var(--amber);">${escHtml(n)}</span>`
+    ).join('') + (extraCount > 0
+      ? `<span style="font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:var(--amber-dim);color:var(--amber);">+${extraCount}</span>`
+      : '');
+
+    const cls = classifyTx(tx);
+    const typeLine = `<div style="margin-top:3px;font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+      <span>${cls.icon}</span><span>${escHtml(cls.label)}</span>
+      ${cls.counterparty ? `<span style="color:var(--border2);">·</span><span style="font-family:var(--mono);">…${escHtml(cls.counterparty)}</span>` : ''}
+    </div>`;
+    const pnlLine = pnlNames.length
+      ? `<div style="margin-top:2px;font-size:9.5px;color:var(--muted);">In P&L: ${escHtml(pnlNames.join(', '))}</div>`
+      : '';
+    const swapDetail = cls.detail
+      ? `<div style="font-size:10.5px;font-family:var(--mono);color:var(--muted);margin-top:1px;">${escHtml(cls.detail)}</div>`
+      : '';
+
+    const spacerRow = (groupStart && pageIdx > 0)
+      ? `<tr style="height:14px;"><td colspan="3" style="padding:0;border:none;background:var(--amber);opacity:0.4;"></td></tr>`
+      : '';
+
+    return `${spacerRow}<tr${isAnchor?' class="tx-row-anchor"':''}>
       <td class="hash-cell col-hash" style="padding-top:13px;">
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">${tx.hash.slice(0,8)}…${tx.hash.slice(-6)}</a>
         <button class="pnl-add-btn${isMember?' active':''}" data-pnl-add="${tx.hash}" ${addBtnDisabled?'disabled':''} title="${addBtnTitle}">${isMember?'✓':'+'}</button>
+        ${chipHtml ? `<span style="display:inline-flex;gap:3px;margin-left:4px;vertical-align:middle;">${chipHtml}</span>` : ''}
+        ${typeLine}
+        ${pnlLine}
       </td>
       <td class="col-date" style="font-size:12px;color:var(--muted);padding-top:13px;">${date}</td>
       <td class="col-summary">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding-top:2px;">
-          ${isSwap?'<span class="swap-badge">swap</span>':''}${adaStr}${tokenSummary}
-        </div>${utxoDetail}
+          ${adaStr}${tokenSummary}
+        </div>${swapDetail}${utxoDetail}
       </td>
     </tr>`;
   }).join('');
   renderPagination();
 }
 
+// Build the list of page numbers to display, collapsing runs of 2+
+// hidden pages into a single '...' entry. Always shows page 1, the
+// last page, and a small window around the current page.
+function buildPageList(current, total) {
+  const pages = [];
+  const addPage = p => pages.push(p);
+  const addEllipsis = () => { if (pages[pages.length-1] !== '...') pages.push('...'); };
+
+  for (let p = 1; p <= total; p++) {
+    const isEdge = p === 1 || p === total;
+    const isNearCurrent = Math.abs(p - current) <= 1;
+    if (isEdge || isNearCurrent) addPage(p);
+    else addEllipsis();
+  }
+  return pages;
+}
+
 function renderPagination() {
-  const count = activeFilterUnit ? getFilteredTxList(activeFilterUnit, activeFilterWindow).length : allTxs.length;
+  const count = activeFilterUnit
+    ? getFilteredTxList(activeFilterUnit, activeFilterWindow).length
+    : activeFilterAddr
+      ? getFilteredTxListByAddr(activeFilterAddr).length
+      : allTxs.length;
   const total = Math.ceil(count/PAGE_SIZE);
   const pg=document.getElementById('pagination');
   if(total<=1){pg.innerHTML='';return;}
+
+  const pageList = buildPageList(currentPage, total);
+  const hasEllipsis = pageList.includes('...');
+
+  const numberButtons = pageList.map(p =>
+    p === '...'
+      ? `<span style="color:var(--muted);padding:0 4px;">…</span>`
+      : `<button class="btn btn-ghost btn-sm" style="${p===currentPage?'background:var(--accent-dim);color:var(--accent);border-color:var(--accent);':''}min-width:30px;" onclick="goPage(${p})">${p}</button>`
+  ).join('');
+
+  // Jump-to-page input only shown once the page list is actually
+  // collapsed with an ellipsis — for small page counts every page
+  // is already one click away, so the input would just be clutter.
+  const jumpInput = hasEllipsis
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;">
+        <span style="color:var(--muted);font-size:12px;">Go to</span>
+        <input type="number" min="1" max="${total}" id="page-jump-input"
+          style="width:54px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:5px 6px;outline:none;"
+          onkeydown="if(event.key==='Enter')jumpToPage(${total})"/>
+        <button class="btn btn-ghost btn-sm" onclick="jumpToPage(${total})">Go</button>
+      </span>`
+    : '';
+
   pg.innerHTML=`<button class="btn btn-ghost" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>← Prev</button>
-    <span>Page ${currentPage} of ${total}</span>
-    <button class="btn btn-ghost" onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>`;
+    ${numberButtons}
+    <button class="btn btn-ghost" onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>
+    ${jumpInput}`;
 }
+
+function jumpToPage(total) {
+  const input = document.getElementById('page-jump-input');
+  const v = parseInt(input.value);
+  if (isNaN(v)) return;
+  goPage(Math.max(1, Math.min(total, v)));
+}
+
 function goPage(p){currentPage=p;renderTable();}
 
 function exportJSON() {
   const payload = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     myAddresses: [...myAddresses],
     tokenDecimals: [...tokenDecimals.entries()],
     userDecimalOverrides: [...userDecimalOverrides],
     labels: [...labels.entries()],
+    // Manual P&L additions: Map<unit, Map<hash, entry>> -> [[unit, [[hash, entry], ...]], ...]
+    pnlManualEntries: [...pnlManualEntries.entries()].map(([unit, m]) => [unit, [...m.entries()]]),
+    // Removed auto-detected entries: Map<unit, Set<hash>> -> [[unit, [hash, ...]], ...]
+    pnlRemovedAuto: [...pnlRemovedAuto.entries()].map(([unit, s]) => [unit, [...s]]),
     totalStakingRewards,
     allTxs,
   };
@@ -1035,7 +1302,7 @@ function getMergedEntries(unit) {
       .map(e=>[e.hash,e])
   );
   (pnlManualEntries.get(unit)||new Map()).forEach((e,hash)=>auto.set(hash,e));
-  return [...auto.values()].sort((a,b)=>a.time-b.time);
+  return [...auto.values()].sort((a,b)=>b.time-a.time); // newest first
 }
 
 // All known units (any unit with at least one entry after merging)
@@ -1217,9 +1484,13 @@ function renderLabelsPanel() {
   if (!labels.size) { panel.style.display = 'none'; return; }
   panel.style.display = 'flex';
   chips.innerHTML = [...labels.entries()].map(([addr, l]) => `
-    <button data-edit-label="${escHtml(addr)}" class="label-chip ${l.color}" style="cursor:pointer;border:none;" title="${escHtml(addr)}">${escHtml(l.name)}</button>
+    <span class="label-chip ${l.color}" style="cursor:pointer;padding-right:4px;" title="${escHtml(addr)}">
+      <span data-filter-label="${escHtml(addr)}" style="cursor:pointer;">${escHtml(l.name)}</span>
+      <button data-edit-label="${escHtml(addr)}" title="Edit label" style="background:none;border:none;color:inherit;cursor:pointer;font-size:9px;padding:0;opacity:0.7;">✎</button>
+    </span>
   `).join('');
-  chips.querySelectorAll('[data-edit-label]').forEach(btn => btn.addEventListener('click', () => openLabelPopup(btn.dataset.editLabel)));
+  chips.querySelectorAll('[data-filter-label]').forEach(el => el.addEventListener('click', () => filterTxLogByAddr(el.dataset.filterLabel)));
+  chips.querySelectorAll('[data-edit-label]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openLabelPopup(btn.dataset.editLabel); }));
 }
 
 // =================================================================
