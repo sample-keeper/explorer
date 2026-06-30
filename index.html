@@ -1,4 +1,4 @@
-<!-- v5.3 -->
+<!-- v5.4 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -324,9 +324,9 @@ const PAGE_SIZE          = 25;
 const COLLAPSE_THRESHOLD = 5;
 const tokenDecimals      = new Map();
 
-// pnlManualEntries: Map<unit, Map<hash, { hash, date, time, tokenNet, adaNet, role }>>
-// These are manually added by the user via the staging panel.
-// They are merged with auto-detected pnlData when rendering.
+// pnlData: auto-detected token P&L entries — Map<unit, entry[]>
+const pnlData          = new Map();
+// pnlManualEntries: user-assigned entries — Map<unit, Map<hash, entry>>
 const pnlManualEntries = new Map();
 
 // pnlRoleOverrides: Map<unit|hash, 'buy'|'sell'>
