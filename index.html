@@ -1,4 +1,4 @@
-<!-- v5.1 -->
+<!-- v5.3 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -114,6 +114,10 @@
 
     /* Swap badge */
     .swap-badge { font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:var(--accent-dim); color:var(--accent); text-transform:uppercase; letter-spacing:0.05em; flex-shrink:0; }
+    /* Stage button on tx rows */
+    .stage-btn { display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:6px;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;color:var(--muted);font-size:13px;cursor:pointer;vertical-align:middle;transition:all 0.15s;flex-shrink:0; }
+    .stage-btn:hover { border-color:var(--accent);color:var(--accent); }
+    .stage-btn.active { background:var(--accent-dim);border-color:var(--accent);color:var(--accent); }
 
     /* Misc */
     .pagination { display:flex; align-items:center; gap:10px; margin-top:1rem; justify-content:center; }
@@ -138,6 +142,26 @@
 </header>
 
 <main>
+  <!-- Assign popup -->
+  <div id="assign-popup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:101;align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:1.5rem;width:460px;max-width:94vw;max-height:90vh;overflow-y:auto;">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:12px;">Assign transactions to Token P&L</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Selected transactions:</div>
+      <div id="assign-popup-txlist" style="margin-bottom:12px;max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Token:</div>
+      <div id="assign-popup-tokens" style="max-height:180px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:4px;"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Role:</div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;">
+        <button id="assign-buy-btn"  class="btn" style="flex:1;padding:8px;font-size:13px;background:var(--red-dim);color:var(--red);border:1px solid var(--red);">Buy (paid ADA)</button>
+        <button id="assign-sell-btn" class="btn" style="flex:1;padding:8px;font-size:13px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);">Sell (received ADA)</button>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeAssignPopup()">Cancel</button>
+        <button class="btn" id="assign-confirm-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Search -->
   <div class="search-card">
     <h2>Lookup</h2>
@@ -250,15 +274,31 @@
         Export CSV
       </button>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th class="col-hash">TX Hash</th>
-          <th class="col-date">Date</th>
-          <th class="col-summary">My Wallet Summary</th>
-        </tr></thead>
-        <tbody id="tx-body"></tbody>
-      </table>
+    <div style="display:flex;gap:1rem;align-items:flex-start;">
+      <div style="flex:1;min-width:0;">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th class="col-hash">TX Hash</th>
+              <th class="col-date">Date</th>
+              <th class="col-summary">My Wallet Summary</th>
+            </tr></thead>
+            <tbody id="tx-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Staging panel — always visible once results are shown -->
+      <div id="staging-panel" style="flex-shrink:0;width:200px;position:sticky;top:1rem;align-self:flex-start;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.75rem;border-bottom:1px solid var(--border);">
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);">P&L Selection</span>
+          <span id="staging-count" style="font-size:10px;font-weight:600;background:var(--accent-dim);color:var(--accent);padding:2px 7px;border-radius:99px;">0</span>
+        </div>
+        <div id="staging-list" style="padding:0.5rem 0.75rem;min-height:36px;display:flex;flex-direction:column;gap:4px;font-size:11px;"></div>
+        <div style="padding:0.5rem 0.75rem;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;">
+          <button id="staging-assign-btn" class="btn btn-sm" style="width:100%;">Assign to token →</button>
+          <button id="staging-clear-btn" class="btn btn-ghost btn-sm" style="width:100%;">Clear</button>
+        </div>
+      </div>
     </div>
     <div class="pagination" id="pagination"></div>
   </div>
@@ -284,9 +324,144 @@ const PAGE_SIZE          = 25;
 const COLLAPSE_THRESHOLD = 5;
 const tokenDecimals      = new Map();
 
-// pnlData: Map<unit, [ { hash, date, time, tokenNet, adaNet, role } ]>
-// role is auto-derived: adaNet < 0 = 'buy', adaNet > 0 = 'sell'
-const pnlData = new Map();
+// pnlManualEntries: Map<unit, Map<hash, { hash, date, time, tokenNet, adaNet, role }>>
+// These are manually added by the user via the staging panel.
+// They are merged with auto-detected pnlData when rendering.
+const pnlManualEntries = new Map();
+
+// pnlRoleOverrides: Map<unit|hash, 'buy'|'sell'>
+// Allows overriding auto-detected roles for any entry.
+const pnlRoleOverrides = new Map();
+
+function getRole(unit, hash, autoRole) {
+  return pnlRoleOverrides.get(unit+'|'+hash) ?? autoRole;
+}
+
+// =================================================================
+// STAGING PANEL
+// User clicks + on any tx row to stage it, then assigns to a token
+// =================================================================
+const stagedHashes = new Set();
+
+function toggleStaged(hash) {
+  if (stagedHashes.has(hash)) stagedHashes.delete(hash);
+  else stagedHashes.add(hash);
+  renderStaging();
+  // update button in table
+  const btn = document.querySelector(`.stage-btn[data-stage="${hash}"]`);
+  if (btn) { btn.textContent = stagedHashes.has(hash)?'✓':'+'; btn.classList.toggle('active', stagedHashes.has(hash)); }
+}
+
+function renderStaging() {
+  const countEl = document.getElementById('staging-count');
+  const listEl  = document.getElementById('staging-list');
+  if (countEl) countEl.textContent = stagedHashes.size;
+
+  if (!stagedHashes.size) {
+    listEl.innerHTML = '<span style="color:var(--muted);">Click + on any transaction to stage it.</span>';
+    return;
+  }
+  listEl.innerHTML = [...stagedHashes].map(hash => {
+    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return '';
+    const {adaNet} = calcTxNet(tx);
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const c = adaNet>=0?'var(--accent)':'var(--red)';
+    return `<div style="padding:3px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-family:var(--mono);color:var(--blue);font-size:10.5px;flex:1;">${hash.slice(0,8)}…${hash.slice(-6)}</span>
+        <button data-unstage="${hash}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:0;">✕</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:1px;">
+        <span style="color:var(--muted);font-size:10px;">${date}</span>
+        <span style="font-family:var(--mono);font-size:10.5px;color:${c};">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+      </div>
+    </div>`;
+  }).join('');
+  listEl.querySelectorAll('[data-unstage]').forEach(btn=>btn.addEventListener('click',()=>toggleStaged(btn.dataset.unstage)));
+}
+
+document.getElementById('staging-clear-btn').addEventListener('click', () => {
+  [...stagedHashes].forEach(h=>{const b=document.querySelector(`.stage-btn[data-stage="${h}"]`);if(b){b.textContent='+';b.classList.remove('active');}});
+  stagedHashes.clear(); renderStaging();
+});
+document.getElementById('staging-assign-btn').addEventListener('click', () => { if (stagedHashes.size) openAssignPopup(); });
+
+// =================================================================
+// ASSIGN POPUP
+// =================================================================
+let assignPopupUnit = null;
+let assignPopupRole = 'buy';
+
+function openAssignPopup() {
+  assignPopupUnit = null; assignPopupRole = 'buy';
+
+  // List staged txs
+  document.getElementById('assign-popup-txlist').innerHTML = [...stagedHashes].map(hash => {
+    const tx = allTxs.find(t=>t.hash===hash); if (!tx) return '';
+    const {adaNet} = calcTxNet(tx);
+    const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const c = adaNet>=0?'var(--accent)':'var(--red)';
+    return `<div style="display:flex;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+      <span style="font-family:var(--mono);color:var(--blue);">${hash.slice(0,10)}…${hash.slice(-6)}</span>
+      <span style="color:var(--muted);">${date}</span>
+      <span style="font-family:var(--mono);color:${c};margin-left:auto;">${adaNet>=0?'+':''}${fmt(adaNet,4)} ₳</span>
+    </div>`;
+  }).join('');
+
+  // List all known tokens (auto-detected + manually added)
+  const knownUnits = new Set([...pnlData.keys(), ...pnlManualEntries.keys()]);
+  allTxs.forEach(tx=>{const {tokenNet}=calcTxNet(tx);tokenNet.forEach((_,u)=>knownUnits.add(u));});
+
+  const tokensEl = document.getElementById('assign-popup-tokens');
+  tokensEl.innerHTML = [...knownUnits].map(unit => {
+    const name = formatAssetName(unit.slice(56))||'null';
+    return `<div class="assign-token-opt" data-unit="${unit}"
+        style="padding:6px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface2);">
+      <span style="color:var(--amber);font-size:12px;font-weight:600;">${escHtml(name)}</span>
+      <span style="font-size:10px;color:var(--muted);font-family:var(--mono);">${unit.slice(0,12)}…</span>
+    </div>`;
+  }).join('');
+
+  tokensEl.querySelectorAll('.assign-token-opt').forEach(el=>el.addEventListener('click',()=>{
+    tokensEl.querySelectorAll('.assign-token-opt').forEach(e=>e.style.borderColor='var(--border)');
+    el.style.borderColor='var(--accent)'; assignPopupUnit=el.dataset.unit;
+  }));
+
+  updateAssignRoleBtns();
+  document.getElementById('assign-popup').style.display='flex';
+}
+
+function updateAssignRoleBtns() {
+  document.getElementById('assign-buy-btn').style.opacity  = assignPopupRole==='buy'  ? '1':'0.4';
+  document.getElementById('assign-sell-btn').style.opacity = assignPopupRole==='sell' ? '1':'0.4';
+}
+document.getElementById('assign-buy-btn').addEventListener('click',  ()=>{assignPopupRole='buy'; updateAssignRoleBtns();});
+document.getElementById('assign-sell-btn').addEventListener('click', ()=>{assignPopupRole='sell';updateAssignRoleBtns();});
+
+document.getElementById('assign-confirm-btn').addEventListener('click', ()=>{
+  if (!assignPopupUnit) { alert('Please select a token.'); return; }
+  if (!pnlManualEntries.has(assignPopupUnit)) pnlManualEntries.set(assignPopupUnit, new Map());
+
+  [...stagedHashes].forEach(hash=>{
+    const tx=allTxs.find(t=>t.hash===hash); if(!tx) return;
+    const {adaNet,tokenNet}=calcTxNet(tx);
+    const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const tNet=tokenNet.get(assignPopupUnit)||0;
+    pnlManualEntries.get(assignPopupUnit).set(hash,{hash,date,time:tx.time,tokenNet:tNet,adaNet,role:assignPopupRole});
+    // Override the auto-detected role for this unit+hash
+    pnlRoleOverrides.set(assignPopupUnit+'|'+hash, assignPopupRole);
+  });
+
+  const unit=assignPopupUnit; closeAssignPopup();
+  // Rebuild merged pnl view and re-render everything
+  renderTokenPnl(); renderSummaryTable(); drawWaterfall(); drawScatter();
+  // Open that token's section
+  document.getElementById(`pnl-body-${unit.slice(0,16)}`)?.classList.add('open');
+  document.getElementById('token-pnl-sidebar').style.display='block';
+});
+
+function closeAssignPopup() { document.getElementById('assign-popup').style.display='none'; assignPopupUnit=null; }
+document.getElementById('assign-popup').addEventListener('click',e=>{if(e.target===document.getElementById('assign-popup'))closeAssignPopup();});
 
 // =================================================================
 // UTILITIES
@@ -326,10 +501,20 @@ function showSkeleton(rows=8) {
 
 // =================================================================
 // BLOCKFROST
+// Note: API key passed as query param on /assets/ to avoid CORS
+// preflight (OPTIONS) which Blockfrost does not support.
+// All other endpoints use the project_id header as normal.
 // =================================================================
 async function bf(path) {
   const r=await fetch(BASE+path,{headers:{project_id:API_KEY}});
   if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.message||`HTTP ${r.status}`);}
+  return r.json();
+}
+
+// Fetch asset metadata using query param to avoid CORS preflight
+async function bfAsset(unit) {
+  const r=await fetch(`${BASE}/assets/${unit}?project_id=${API_KEY}`);
+  if(!r.ok) return null;
   return r.json();
 }
 
@@ -342,6 +527,9 @@ async function fetchAccount() {
   document.getElementById('results').style.display='none';
   document.getElementById('search-btn').disabled=true;
   pnlData.clear();
+  pnlRoleOverrides.clear();
+  pnlManualEntries.clear();
+  stagedHashes.clear();
   setStatus('<span class="spinner"></span> Fetching account…');
 
   try {
@@ -395,23 +583,19 @@ async function fetchAccount() {
       };
     });
 
-    // Apply known token decimals (avoids CORS-blocked /assets/ endpoint)
-    const KNOWN_DECIMALS={
-      'f66d78b4a3cb3d37afa0ec36461e51ecbbd728c2a2d70354':6,
-      '8db269c3ec630e06ae29f74bc39edd1f87c819f1056206e879a1cd873':6,
-      '25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935573696e':6,
-      '29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6d696e':6,
-      '9a9693a9a37912a5097918f97918d15240c92ab729a0b7c4aa144d77':6,
-      '1d7f33bd23d85e1a25d87d86fac4f199c3197a2f7afeb662a0f34e1':6,
-    };
+    // Fetch token decimals for all unique tokens.
+    // Using query param for API key avoids the CORS preflight issue.
     const allUnits=new Set();
     allTxs.forEach(tx=>[...tx.inputs,...tx.outputs].forEach(u=>(u.amount||[]).forEach(a=>{if(a.unit!=='lovelace')allUnits.add(a.unit);})));
-    allUnits.forEach(unit=>{
-      if(!tokenDecimals.has(unit)){
-        const k=Object.entries(KNOWN_DECIMALS).find(([p])=>unit.startsWith(p));
-        tokenDecimals.set(unit,k?k[1]:0);
-      }
-    });
+    const uncached=[...allUnits].filter(u=>!tokenDecimals.has(u));
+    if(uncached.length){
+      setStatus(`<span class="spinner"></span> Fetching decimals for ${uncached.length} tokens…`);
+      await Promise.all(uncached.map(unit=>
+        bfAsset(unit)
+          .then(a=>tokenDecimals.set(unit,a?.metadata?.decimals??a?.onchain_metadata?.decimals??0))
+          .catch(()=>tokenDecimals.set(unit,0))
+      ));
+    }
 
     // Build P&L data automatically from tx direction
     buildPnlData();
@@ -582,6 +766,7 @@ function renderTable() {
     return `<tr>
       <td class="hash-cell col-hash" style="padding-top:13px;">
         <a href="https://cardanoscan.io/transaction/${tx.hash}" target="_blank" rel="noopener">${tx.hash.slice(0,8)}…${tx.hash.slice(-6)}</a>
+        <button class="stage-btn${stagedHashes.has(tx.hash)?' active':''}" data-stage="${tx.hash}" title="Add to P&L selection">${stagedHashes.has(tx.hash)?'✓':'+'}</button>
       </td>
       <td class="col-date" style="font-size:12px;color:var(--muted);padding-top:13px;">${date}</td>
       <td class="col-summary">
@@ -675,14 +860,17 @@ function renderDateRange() {
 // =================================================================
 function renderSummaryTable() {
   const panel=document.getElementById('summary-panel'),wrap=document.getElementById('summary-table-wrap');
-  if(!pnlData.size){panel.style.display='none';return;}
+  const units=allPnlUnits();
+  if(!units.size){panel.style.display='none';return;}
   panel.style.display='block';
-  const rows=[...pnlData.entries()].map(([unit,entries])=>{
+  const rows=[...units].map(unit=>{
+    const entries=getMergedEntries(unit);
     const name=formatAssetName(unit.slice(56))||'null';
     const url=`https://adastat.net/tokens/${unit}`;
     let adaPaid=0,adaRec=0,tkBought=0,tkSold=0;
     entries.forEach(e=>{
-      if(e.role==='buy'){adaPaid+=Math.abs(e.adaNet);tkBought+=e.tokenNet;}
+      const role=getRole(unit,e.hash,e.role);
+      if(role==='buy'){adaPaid+=Math.abs(e.adaNet);tkBought+=e.tokenNet;}
       else{adaRec+=e.adaNet;tkSold+=Math.abs(e.tokenNet);}
     });
     const gain=adaRec-adaPaid,gc=gain>0?'var(--accent)':gain<0?'var(--red)':'var(--muted)';
@@ -709,7 +897,7 @@ function renderSummaryTable() {
 // WATERFALL CHART
 // =================================================================
 function populateTokenSelects() {
-  const units=[...pnlData.keys()];
+  const units=[...allPnlUnits()];
   ['waterfall-token-select','scatter-token-select'].forEach(id=>{
     const sel=document.getElementById(id);
     const prev=sel.value;
@@ -720,7 +908,7 @@ function populateTokenSelects() {
 
 function renderWaterfall() {
   const panel=document.getElementById('waterfall-panel');
-  if(!pnlData.size){panel.style.display='none';return;}
+  if(!allPnlUnits().size){panel.style.display='none';return;}
   panel.style.display='block';
   populateTokenSelects();
   drawWaterfall();
@@ -730,7 +918,7 @@ function drawWaterfall() {
   const unit=document.getElementById('waterfall-token-select').value;
   if(!unit) return;
   const canvas=document.getElementById('waterfall-canvas');
-  const entries=(pnlData.get(unit)||[]).slice().sort((a,b)=>a.time-b.time);
+  const entries=getMergedEntries(unit).slice().sort((a,b)=>a.time-b.time);
   if(!entries.length){canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);return;}
   const dpr=window.devicePixelRatio||1,W=canvas.parentElement.clientWidth,H=160;
   canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';
@@ -747,9 +935,10 @@ function drawWaterfall() {
   ctx.fillText(`-${fmt(maxAbs,1)} ₳`,PAD.left-4,PAD.top+cH);
   let runNet=0;const linePoints=[];
   entries.forEach((e,i)=>{
+    const role=getRole(unit,e.hash,e.role);
     const x=PAD.left+i*(cW/entries.length);
     const barH=Math.max(3,(Math.abs(e.adaNet)/maxAbs)*(cH/2));
-    if(e.role==='buy'){ctx.fillStyle='#f87171';ctx.fillRect(x,midY,barW,barH);runNet-=Math.abs(e.adaNet);}
+    if(role==='buy'){ctx.fillStyle='#f87171';ctx.fillRect(x,midY,barW,barH);runNet-=Math.abs(e.adaNet);}
     else{ctx.fillStyle='#0cd9a0';ctx.fillRect(x,midY-barH,barW,barH);runNet+=e.adaNet;}
     linePoints.push({x:x+barW/2,y:midY-(runNet/maxAbs)*(cH/2)});
     if(i===0||i===entries.length-1){
@@ -765,9 +954,9 @@ function drawWaterfall() {
   canvas.onmousemove=e=>{
     const rect=canvas.getBoundingClientRect(),relX=e.clientX-rect.left-PAD.left;
     const idx=Math.max(0,Math.min(Math.floor(relX/(cW/entries.length)),entries.length-1));
-    const t=entries[idx],c=t.role==='sell'?'var(--accent)':'var(--red)';
+    const t=entries[idx],role=getRole(unit,t.hash,t.role),c=role==='sell'?'var(--accent)':'var(--red)';
     tip.style.display='block';tip.style.left=(e.clientX+12)+'px';tip.style.top=(e.clientY-32)+'px';
-    tip.innerHTML=`<span style="color:var(--muted);">${t.date}</span><br><span style="font-family:var(--mono);color:${c};">${t.role==='sell'?'+':'−'}${fmt(Math.abs(t.adaNet),4)} ₳</span><br><span style="color:var(--muted);">${t.role}</span>`;
+    tip.innerHTML=`<span style="color:var(--muted);">${t.date}</span><br><span style="font-family:var(--mono);color:${c};">${role==='sell'?'+':'−'}${fmt(Math.abs(t.adaNet),4)} ₳</span><br><span style="color:var(--muted);">${role}</span>`;
   };
   canvas.onmouseleave=()=>{tip.style.display='none';};
   canvas.onclick=e=>{
@@ -783,7 +972,7 @@ document.getElementById('waterfall-token-select').addEventListener('change',draw
 // =================================================================
 function renderScatter() {
   const panel=document.getElementById('scatter-panel');
-  if(!pnlData.size){panel.style.display='none';return;}
+  if(!allPnlUnits().size){panel.style.display='none';return;}
   panel.style.display='block';
   drawScatter();
 }
@@ -792,9 +981,9 @@ function drawScatter() {
   const unit=document.getElementById('scatter-token-select').value;
   if(!unit) return;
   const canvas=document.getElementById('scatter-canvas');
-  const entries=(pnlData.get(unit)||[]).filter(e=>Math.abs(e.tokenNet)>0);
+  const entries=getMergedEntries(unit).filter(e=>Math.abs(e.tokenNet)>0);
   if(!entries.length){canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);return;}
-  const points=entries.map(e=>({...e,price:Math.abs(e.adaNet)/Math.abs(e.tokenNet)}));
+  const points=entries.map(e=>({...e,price:Math.abs(e.adaNet)/Math.abs(e.tokenNet),role:getRole(unit,e.hash,e.role)}));
   const dpr=window.devicePixelRatio||1,W=canvas.parentElement.clientWidth,H=180;
   canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';
   const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
@@ -859,27 +1048,44 @@ document.getElementById('scatter-token-select').addEventListener('change',drawSc
 // =================================================================
 // TOKEN P&L DETAIL PANEL
 // =================================================================
+// Merge auto-detected + manually assigned entries for a token.
+// Manual entries (and role overrides) take precedence over auto-detected.
+function getMergedEntries(unit) {
+  const auto = new Map((pnlData.get(unit)||[]).map(e=>[e.hash,e]));
+  (pnlManualEntries.get(unit)||new Map()).forEach((e,hash)=>auto.set(hash,e));
+  return [...auto.values()].sort((a,b)=>a.time-b.time);
+}
+
+// All known units (auto + manual)
+function allPnlUnits() {
+  return new Set([...pnlData.keys(),...pnlManualEntries.keys()]);
+}
+
 function renderTokenPnl() {
   const sidebar=document.getElementById('token-pnl-sidebar'),list=document.getElementById('token-pnl-list');
-  if(!pnlData.size){sidebar.style.display='none';return;}
+  const units=allPnlUnits();
+  if(!units.size){sidebar.style.display='none';return;}
   sidebar.style.display='block';
   const openUnits=new Set();list.querySelectorAll('.pnl-token-body.open').forEach(el=>openUnits.add(el.dataset.unit));
-  list.innerHTML=[...pnlData.entries()].map(([unit,entries])=>{
+  list.innerHTML=[...units].map(unit=>{
+    const entries=getMergedEntries(unit);
     const name=formatAssetName(unit.slice(56))||'null',url=`https://adastat.net/tokens/${unit}`;
     const totalIn=entries.filter(e=>e.tokenNet>0).reduce((s,e)=>s+e.tokenNet,0);
     const totalOut=entries.filter(e=>e.tokenNet<0).reduce((s,e)=>s+Math.abs(e.tokenNet),0);
     const netPos=totalIn-totalOut,netColor=netPos>=0?'var(--accent)':'var(--red)';
     const bodyId=`pnl-body-${unit.slice(0,16)}`;
     const txRows=entries.map(e=>{
+      const role=getRole(unit,e.hash,e.role);
       const tColor=e.tokenNet>0?'var(--accent)':'var(--red)',adaColor=e.adaNet>=0?'var(--accent)':'var(--red)';
       const tknStr=`${e.tokenNet>0?'+':''}${fmt4sig(e.tokenNet)} tkn`;
-      const roleBadge=`<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:${e.role==='buy'?'var(--red-dim)':'var(--accent-dim)'};color:${e.role==='buy'?'var(--red)':'var(--accent)'};">${e.role}</span>`;
+      const roleBg=role==='buy'?'var(--red-dim)':'var(--accent-dim)';
+      const roleCol=role==='buy'?'var(--red)':'var(--accent)';
       return `<div class="pnl-tx-row">
         <span class="pnl-tx-link" data-hash="${e.hash}">${e.hash.slice(0,8)}…${e.hash.slice(-6)}</span>
         <span style="color:var(--muted);font-size:10.5px;white-space:nowrap;">${e.date}</span>
         <span style="font-family:var(--mono);color:${tColor};font-size:11px;">${tknStr}</span>
         <span style="font-family:var(--mono);color:${adaColor};font-size:11px;">${e.adaNet>=0?'+':''}${fmt(e.adaNet,4)} ₳</span>
-        ${roleBadge}
+        <span style="font-size:9px;padding:2px 7px;border-radius:3px;background:${roleBg};color:${roleCol};font-weight:700;">${role}</span>
       </div>`;
     }).join('');
     return `<div class="pnl-token-row" data-unit="${unit}">
@@ -891,7 +1097,7 @@ function renderTokenPnl() {
       </div>
       <div class="pnl-token-body${openUnits.has(unit)?' open':''}" id="${bodyId}" data-unit="${unit}">
         ${txRows}
-        <div class="pnl-summary-box">${pnlSummaryHTML(entries)}</div>
+        <div class="pnl-summary-box">${pnlSummaryHTML(unit,entries)}</div>
       </div>
     </div>`;
   }).join('');
@@ -899,10 +1105,11 @@ function renderTokenPnl() {
   list.querySelectorAll('.pnl-tx-link').forEach(el=>el.addEventListener('click',()=>scrollToTx(el.dataset.hash)));
 }
 
-function pnlSummaryHTML(entries) {
+function pnlSummaryHTML(unit, entries) {
   let adaPaid=0,adaRec=0,tkBought=0,tkSold=0;
   entries.forEach(e=>{
-    if(e.role==='buy'){adaPaid+=Math.abs(e.adaNet);tkBought+=e.tokenNet;}
+    const role=getRole(unit,e.hash,e.role);
+    if(role==='buy'){adaPaid+=Math.abs(e.adaNet);tkBought+=e.tokenNet;}
     else{adaRec+=e.adaNet;tkSold+=Math.abs(e.tokenNet);}
   });
   const gain=adaRec-adaPaid,gc=gain>=0?'var(--accent)':'var(--red)';
@@ -919,7 +1126,10 @@ function pnlSummaryHTML(entries) {
 function renderPnlTotals() {
   const el=document.getElementById('token-pnl-totals');
   let paid=0,rec=0;
-  pnlData.forEach(entries=>entries.forEach(e=>{if(e.role==='buy')paid+=Math.abs(e.adaNet);else rec+=e.adaNet;}));
+  allPnlUnits().forEach(unit=>getMergedEntries(unit).forEach(e=>{
+    const role=getRole(unit,e.hash,e.role);
+    if(role==='buy')paid+=Math.abs(e.adaNet);else rec+=e.adaNet;
+  }));
   if(paid===0&&rec===0){el.style.display='none';return;}
   const gain=rec-paid,gc=gain>=0?'var(--accent)':'var(--red)';
   el.style.display='block';
@@ -954,10 +1164,13 @@ function scrollToTx(hash) {
 // GLOBAL LISTENERS
 // =================================================================
 document.getElementById('stake').addEventListener('keydown',e=>{if(e.key==='Enter')fetchAccount();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){/* no popup to close */}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAssignPopup();});
 window.addEventListener('resize',()=>{if(allTxs.length){renderTimeline();drawWaterfall();drawScatter();}});
+renderStaging();
 
 document.getElementById('tx-body').addEventListener('click',e=>{
+  const stageBtn=e.target.closest('.stage-btn');
+  if(stageBtn){toggleStaged(stageBtn.dataset.stage);return;}
   const expandBtn=e.target.closest('.utxo-expand-btn');
   if(expandBtn){
     const expanded=expandBtn.dataset.expanded==='true';
