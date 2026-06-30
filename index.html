@@ -1,4 +1,4 @@
-<!-- v5.4 -->
+<!-- v5.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -181,6 +181,11 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       Search
     </button>
+    <button class="btn btn-ghost" id="import-btn" onclick="document.getElementById('import-file').click()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Import JSON
+    </button>
+    <input type="file" id="import-file" accept="application/json" style="display:none;"/>
     <div id="status"></div>
   </div>
 
@@ -269,10 +274,16 @@
     <!-- Transaction Log -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
       <h3 id="tx-count-label" style="font-size:14px;font-weight:500;color:var(--muted);">Transaction Log</h3>
-      <button class="btn btn-ghost btn-sm" onclick="exportCSV()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export CSV
-      </button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="exportJSON()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export JSON
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="exportCSV()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export CSV
+        </button>
+      </div>
     </div>
     <div style="display:flex;gap:1rem;align-items:flex-start;">
       <div style="flex:1;min-width:0;">
@@ -621,8 +632,73 @@ async function fetchAccount() {
 }
 
 // =================================================================
-// META CARDS
+// IMPORT FROM JSON
+// Loads a previously exported file and reconstructs state without
+// any API calls.
 // =================================================================
+function importJSON(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if (!payload.allTxs) throw new Error('File does not look like a valid export.');
+
+      // Reset state
+      pnlData.clear();
+      pnlRoleOverrides.clear();
+      pnlManualEntries.clear();
+      stagedHashes.clear();
+      tokenDecimals.clear();
+
+      // Restore state from the file
+      myAddresses = new Set(payload.myAddresses || []);
+      (payload.tokenDecimals || []).forEach(([unit,dec]) => tokenDecimals.set(unit, dec));
+      totalStakingRewards = payload.totalStakingRewards || 0;
+      allTxs = payload.allTxs;
+
+      buildPnlData();
+
+      // Render everything — no account-level metrics available from
+      // a JSON import (those require /accounts/{stake}), so build a
+      // reduced meta grid from the loaded transactions instead.
+      renderMetaFromImport();
+      currentPage = 1;
+      document.getElementById('results').style.display = 'block';
+      renderTable();
+      renderTimeline();
+      renderDateRange();
+      renderSummaryTable();
+      renderWaterfall();
+      renderScatter();
+      renderTokenPnl();
+      setStatus(`Loaded ${allTxs.length} transactions from file (exported ${payload.exportedAt ? new Date(payload.exportedAt).toLocaleString() : 'unknown date'}).`);
+
+    } catch (err) {
+      setStatus('Import error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) importJSON(file);
+  e.target.value = ''; // allow re-selecting the same file
+});
+
+// Meta grid for imported data — no live account info, so just show
+// what we can derive from the transaction set itself.
+function renderMetaFromImport() {
+  const rewardsAda = lovelace(totalStakingRewards);
+  document.getElementById('meta-grid').innerHTML = [
+    { label:'Staking rewards (loaded period)', value:fmt(rewardsAda), ada:true },
+    { label:'Transactions', value:allTxs.length.toLocaleString(), ada:false },
+    { label:'Own addresses', value:myAddresses.size.toLocaleString(), ada:false },
+    { label:'Source', value:'Imported file', ada:false },
+  ].map(c=>`<div class="metric"><div class="metric-label">${c.label}</div><div class="metric-value${c.ada?' ada':''}">${c.value}</div></div>`).join('');
+}
+
+
 function renderMeta(acct,count) {
   const pool=acct.pool_id?acct.pool_id.slice(0,12)+'…':'Not delegating';
   const rewardsAda=lovelace(totalStakingRewards);
@@ -788,6 +864,24 @@ function renderPagination() {
     <button class="btn btn-ghost" onclick="goPage(${currentPage+1})" ${currentPage===total?'disabled':''}>Next →</button>`;
 }
 function goPage(p){currentPage=p;renderTable();window.scrollTo({top:0});}
+
+function exportJSON() {
+  // Bundle everything needed to fully reconstruct the explorer state
+  // without any further API calls.
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    myAddresses: [...myAddresses],
+    tokenDecimals: [...tokenDecimals.entries()],
+    totalStakingRewards,
+    allTxs,
+  };
+  const json = JSON.stringify(payload);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = `cardano-explorer-export-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
 
 function exportCSV() {
   const rows=[['TX Hash','Date','ADA Net','Swap','Block']];
