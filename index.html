@@ -1,4 +1,4 @@
-<!-- v7.3 -->
+<!-- v8.1 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -146,7 +146,7 @@
     .pnl-add-btn:disabled { opacity:0.3; cursor:not-allowed; }
 
     /* Misc */
-    .pagination { display:flex; align-items:center; gap:6px; margin-top:1rem; justify-content:center; flex-wrap:wrap; }
+    .pagination { display:flex; align-items:center; gap:6px; margin-top:1rem; justify-content:center; flex-wrap:wrap; position:sticky; bottom:0; background:var(--bg); padding:0.75rem 0; border-top:1px solid var(--border); z-index:20; }
     .pagination span { font-size:13px; color:var(--muted); }
     .spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:-2px; }
     @keyframes spin { to { transform:rotate(360deg); } }
@@ -241,11 +241,11 @@
     <div class="panel panel-blue" id="summary-panel" style="display:none;">
       <div class="panel-header" onclick="togglePanel('summary-body','summary-chev')">
         <div class="panel-header-left">
-          <span class="panel-chevron open" id="summary-chev">▶</span>
+          <span class="panel-chevron" id="summary-chev">▶</span>
           <span class="panel-header-title">Token Summary</span>
         </div>
       </div>
-      <div class="panel-body open" id="summary-body">
+      <div class="panel-body" id="summary-body">
         <div id="summary-table-wrap"></div>
       </div>
     </div>
@@ -261,9 +261,10 @@
       <span style="color:var(--muted);">Filtered to</span>
       <span id="tx-filter-token-name" style="color:var(--amber);font-weight:600;"></span>
       <span style="color:var(--muted);">± </span>
-      <input id="tx-filter-window" type="number" min="0" max="50" value="5"
+      <input id="tx-filter-window" type="number" min="0" max="50" value="3"
         style="width:48px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:3px 6px;outline:none;"/>
       <span style="color:var(--muted);">txs of context</span>
+      <button id="tx-filter-context-toggle" class="btn btn-ghost btn-sm" title="Toggle context transactions on/off">Context: on</button>
       <span style="color:var(--muted);">· + adds a tx to this token's P&L</span>
       <button class="btn btn-ghost btn-sm" id="tx-filter-clear-btn" style="margin-left:auto;">✕ Clear filter</button>
     </div>
@@ -272,6 +273,11 @@
     <div id="addr-filter-banner" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:12px;">
       <span style="color:var(--muted);">Filtered to address</span>
       <span id="addr-filter-name" style="font-family:var(--mono);color:var(--blue);font-weight:600;word-break:break-all;"></span>
+      <span style="color:var(--muted);">± </span>
+      <input id="addr-filter-window" type="number" min="0" max="50" value="3"
+        style="width:48px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:3px 6px;outline:none;"/>
+      <span style="color:var(--muted);">txs of context</span>
+      <button id="addr-filter-context-toggle" class="btn btn-ghost btn-sm" title="Toggle context transactions on/off">Context: on</button>
       <button class="btn btn-ghost btn-sm" id="addr-filter-clear-btn" style="margin-left:auto;flex-shrink:0;">✕ Clear filter</button>
     </div>
 
@@ -345,7 +351,29 @@ const API_KEY = 'mainnettuskMeFpliyx52DukVDywVSJ9e5kUCqb';
 let allTxs      = [];
 let myAddresses = new Set();
 let totalStakingRewards = 0; // lovelace earned as staking rewards
-let currentPage = 1;
+// Three independent page counters — one per view state so switching
+// filters (or clearing them) always returns the user to where they
+// left off in each view rather than resetting to page 1.
+let pageUnfiltered  = 1;
+let pageTokenFilter = 1;
+let pageAddrFilter  = 1;
+
+// currentPage is a virtual getter/setter that reads/writes the right
+// counter based on the active filter state. All existing call sites
+// use currentPage so nothing else needs changing.
+Object.defineProperty(window, 'currentPage', {
+  get() {
+    if (activeFilterUnit) return pageTokenFilter;
+    if (activeFilterAddr) return pageAddrFilter;
+    return pageUnfiltered;
+  },
+  set(v) {
+    if (activeFilterUnit) pageTokenFilter = v;
+    else if (activeFilterAddr) pageAddrFilter = v;
+    else pageUnfiltered = v;
+  },
+  configurable: true,
+});
 
 // Token filter state — when active, the Transaction Log shows only
 // transactions touching activeFilterUnit plus N surrounding txs of
@@ -354,13 +382,13 @@ let currentPage = 1;
 // directly to activeFilterUnit's P&L entries (no token picker needed,
 // since the filter itself is the explicit token context).
 let activeFilterUnit   = null;
-let activeFilterWindow = 5;
+let lastFilterUnit     = null; // remembers the last token filter even after clearing
+let activeFilterWindow = 3; // context txs around each token-filter anchor
 
-// Address filter — when active, the Transaction Log shows only
-// transactions where this exact address appears as an input or
-// output. Mutually exclusive with the token filter (activating one
-// clears the other) to keep the displayed rows unambiguous.
-let activeFilterAddr = null;
+// Address filter — mutually exclusive with token filter.
+let activeFilterAddr       = null;
+let lastFilterAddr         = null; // remembers the last address filter even after clearing
+let activeAddrFilterWindow = 3; // context txs around each address-filter anchor
 
 const PAGE_SIZE          = 25;
 const COLLAPSE_THRESHOLD = 5;
@@ -464,9 +492,11 @@ async function fetchAccount() {
   pnlManualEntries.clear();
   pnlRemovedAuto.clear();
   userDecimalOverrides.clear();
-  activeFilterUnit = null;
+  activeFilterUnit = null; lastFilterUnit = null;
+  activeFilterWindow = 3;
   document.getElementById('tx-filter-banner').style.display = 'none';
-  activeFilterAddr = null;
+  activeFilterAddr = null; lastFilterAddr = null;
+  activeAddrFilterWindow = 3;
   document.getElementById('addr-filter-banner').style.display = 'none';
   setStatus('<span class="spinner"></span> Fetching account…');
 
@@ -534,7 +564,7 @@ async function fetchAccount() {
     buildPnlData();
 
     renderMeta(acct,txList.length);
-    currentPage=1;
+    pageUnfiltered = 1; pageTokenFilter = 1; pageAddrFilter = 1;
     document.getElementById('results').style.display='block';
     showSkeleton();
     renderTable();
@@ -568,9 +598,11 @@ function importJSON(file) {
       pnlRemovedAuto.clear();
       tokenDecimals.clear();
       userDecimalOverrides.clear();
-      activeFilterUnit = null;
+      activeFilterUnit = null; lastFilterUnit = null;
+      activeFilterWindow = 3;
       document.getElementById('tx-filter-banner').style.display = 'none';
-      activeFilterAddr = null;
+      activeFilterAddr = null; lastFilterAddr = null;
+      activeAddrFilterWindow = 3;
       document.getElementById('addr-filter-banner').style.display = 'none';
 
       // Restore state from the file
@@ -586,7 +618,7 @@ function importJSON(file) {
       buildPnlData();
 
       renderMetaFromImport();
-      currentPage = 1;
+      pageUnfiltered = 1; pageTokenFilter = 1; pageAddrFilter = 1;
       document.getElementById('results').style.display = 'block';
       renderTable();
       renderTimeline();
@@ -807,7 +839,7 @@ function utxoRows(list,txHash,side) {
       ${tokenAmounts(u.amount)}
       <div style="display:flex;align-items:center;gap:4px;">
         <button class="label-star-btn" data-addr="${escHtml(addr)}" title="${label?'Edit label':'Add label'}">${label?'★':'☆'}</button>
-        <div class="utxo-addr" style="${isOwn?'color:var(--accent);':''}">${escHtml(addr)}</div>
+        <span class="utxo-addr" data-click-addr="${escHtml(addr)}" style="cursor:pointer;${isOwn?'color:var(--accent);':''}text-decoration-style:dotted;text-underline-offset:2px;" title="Click to filter transactions by this address">${escHtml(addr)}</span>
       </div>
     </div>`;
   }).join('');
@@ -851,20 +883,21 @@ function getLabeledAddressesForTx(tx) {
 // =================================================================
 
 function filterTxLogByToken(unit, name) {
+  const changed = lastFilterUnit !== unit;
   activeFilterUnit = unit;
-  activeFilterAddr = null; // mutually exclusive with address filter
+  lastFilterUnit   = unit;
+  activeFilterAddr = null;
   document.getElementById('addr-filter-banner').style.display = 'none';
-  currentPage = 1;
+  if (changed) currentPage = 1;
   document.getElementById('tx-filter-banner').style.display = 'flex';
   document.getElementById('tx-filter-token-name').textContent = name;
   document.getElementById('tx-filter-window').value = activeFilterWindow;
   renderTable();
-  renderTokenPnl(); // refresh so the active token's header is highlighted
+  renderTokenPnl();
 }
 
 function clearTxFilter() {
   activeFilterUnit = null;
-  currentPage = 1;
   document.getElementById('tx-filter-banner').style.display = 'none';
   renderTable();
   renderTokenPnl();
@@ -874,40 +907,105 @@ document.getElementById('tx-filter-clear-btn').addEventListener('click', clearTx
 document.getElementById('tx-filter-window').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   activeFilterWindow = isNaN(v) ? 0 : Math.max(0, Math.min(50, v));
+  updateContextToggleBtn('tx-filter-context-toggle', activeFilterWindow);
+  currentPage = 1;
+  renderTable();
+});
+document.getElementById('tx-filter-context-toggle').addEventListener('click', () => {
+  activeFilterWindow = activeFilterWindow === 0 ? 3 : 0;
+  document.getElementById('tx-filter-window').value = activeFilterWindow;
+  updateContextToggleBtn('tx-filter-context-toggle', activeFilterWindow);
   currentPage = 1;
   renderTable();
 });
 
-// Activate the address filter: show only txs where this address
-// appears in any input or output. Mutually exclusive with the token
-// filter — activating this clears that one, and vice versa.
-function filterTxLogByAddr(addr) {
-  activeFilterAddr = addr;
-  activeFilterUnit = null; // mutually exclusive with token filter
-  document.getElementById('tx-filter-banner').style.display = 'none';
+document.getElementById('addr-filter-window').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  activeAddrFilterWindow = isNaN(v) ? 0 : Math.max(0, Math.min(50, v));
+  updateContextToggleBtn('addr-filter-context-toggle', activeAddrFilterWindow);
   currentPage = 1;
+  renderTable();
+});
+document.getElementById('addr-filter-context-toggle').addEventListener('click', () => {
+  activeAddrFilterWindow = activeAddrFilterWindow === 0 ? 3 : 0;
+  document.getElementById('addr-filter-window').value = activeAddrFilterWindow;
+  updateContextToggleBtn('addr-filter-context-toggle', activeAddrFilterWindow);
+  currentPage = 1;
+  renderTable();
+});
+
+// Update a context toggle button's text and style based on current window size
+function updateContextToggleBtn(id, window) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  const on = window > 0;
+  btn.textContent = `Context: ${on ? 'on' : 'off'}`;
+  btn.style.color = on ? 'var(--accent)' : 'var(--muted)';
+  btn.style.borderColor = on ? 'var(--accent)' : '';
+}
+
+// Called when the user clicks an address in the UTxO view.
+// Auto-creates a label (last 6 chars, accent color) if none exists,
+// then activates the address filter.
+function clickAddress(addr) {
+  if (!labels.has(addr)) {
+    labels.set(addr, { name: addr.slice(-6), color: 'accent' });
+    renderLabelsPanel();
+    renderTable(); // refresh star buttons to ★
+  }
+  filterTxLogByAddr(addr);
+}
+
+function filterTxLogByAddr(addr) {
+  const changed = lastFilterAddr !== addr;
+  activeFilterAddr = addr;
+  lastFilterAddr   = addr;
+  activeFilterUnit = null;
+  document.getElementById('tx-filter-banner').style.display = 'none';
+  if (changed) currentPage = 1;
   document.getElementById('addr-filter-banner').style.display = 'flex';
-  document.getElementById('addr-filter-name').textContent = addr;
+  document.getElementById('addr-filter-window').value = activeAddrFilterWindow;
+  updateContextToggleBtn('addr-filter-context-toggle', activeAddrFilterWindow);
+  const label = labels.get(addr);
+  document.getElementById('addr-filter-name').textContent = label
+    ? `${label.name} (${addr.slice(0,8)}…${addr.slice(-6)})`
+    : addr;
   renderTable();
   renderTokenPnl();
 }
 
 function clearAddrFilter() {
   activeFilterAddr = null;
-  currentPage = 1;
   document.getElementById('addr-filter-banner').style.display = 'none';
   renderTable();
 }
 
 document.getElementById('addr-filter-clear-btn').addEventListener('click', clearAddrFilter);
 
-// Return every transaction (newest-first, matching allTxs order) that
-// has this exact address among its inputs or outputs.
+// Return transactions anchored to the given address (any appearance
+// in inputs or outputs), expanded by activeAddrFilterWindow on each
+// side — same algorithm as getFilteredTxList for token filtering.
 function getFilteredTxListByAddr(addr) {
-  return allTxs.filter(tx =>
-    (tx.inputs||[]).some(u => u.address === addr) ||
-    (tx.outputs||[]).some(u => u.address === addr)
-  );
+  const chrono = [...allTxs].reverse(); // oldest-first
+
+  const anchorIndices = new Set();
+  chrono.forEach((tx, i) => {
+    const touched =
+      (tx.inputs||[]).some(u => u.address === addr) ||
+      (tx.outputs||[]).some(u => u.address === addr);
+    if (touched) anchorIndices.add(i);
+  });
+
+  const w = activeAddrFilterWindow;
+  const includedIndices = new Set();
+  anchorIndices.forEach(i => {
+    const start = Math.max(0, i - w);
+    const end   = Math.min(chrono.length - 1, i + w);
+    for (let j = start; j <= end; j++) includedIndices.add(j);
+  });
+
+  const sortedIndices = [...includedIndices].sort((a, b) => a - b);
+  return sortedIndices.map(i => ({ tx: chrono[i], isAnchor: anchorIndices.has(i) }));
 }
 
 // Given a token unit, return the chronologically-sorted list of
@@ -1004,7 +1102,15 @@ function renderTable() {
     });
     sourceList = reversed;
   } else if (activeFilterAddr) {
-    sourceList = getFilteredTxListByAddr(activeFilterAddr).map(tx => ({ tx, isAnchor:false }));
+    const addrList = getFilteredTxListByAddr(activeFilterAddr).reverse(); // newest-first
+    const chronoIndexOf = new Map([...allTxs].reverse().map((tx,i)=>[tx.hash,i]));
+    addrList.forEach((item,idx) => {
+      if(idx===0){item.groupStart=true;return;}
+      const prevIdx=chronoIndexOf.get(addrList[idx-1].tx.hash);
+      const curIdx=chronoIndexOf.get(item.tx.hash);
+      item.groupStart=curIdx!==prevIdx-1;
+    });
+    sourceList = addrList;
   } else {
     sourceList = allTxs.map(tx => ({ tx, isAnchor:false }));
   }
@@ -1074,8 +1180,11 @@ function renderTable() {
       ? `<div style="font-size:10.5px;font-family:var(--mono);color:var(--muted);margin-top:1px;">${escHtml(cls.detail)}</div>`
       : '';
 
-    const spacerRow = (groupStart && pageIdx > 0)
-      ? `<tr style="height:14px;"><td colspan="3" style="padding:0;border:none;background:var(--amber);opacity:0.4;"></td></tr>`
+    const contextIsOff = activeFilterUnit
+      ? activeFilterWindow === 0
+      : activeAddrFilterWindow === 0;
+    const spacerRow = (groupStart && pageIdx > 0 && !contextIsOff)
+      ? `<tr style="height:14px;"><td colspan="3" style="padding:0;border:none;background:var(--amber);"></td></tr>`
       : '';
 
     return `${spacerRow}<tr${isAnchor?' class="tx-row-anchor"':''}>
@@ -1324,7 +1433,7 @@ function renderTokenPnl() {
     const totalIn=entries.filter(e=>e.tokenNet>0).reduce((s,e)=>s+e.tokenNet,0);
     const totalOut=entries.filter(e=>e.tokenNet<0).reduce((s,e)=>s+Math.abs(e.tokenNet),0);
     const netPos=totalIn-totalOut,netColor=netPos>=0?'var(--accent)':'var(--red)';
-    const bodyId=`pnl-body-${unit.slice(0,16)}`;
+    const bodyId=`pnl-body-${unit}`;
     const isFiltering = activeFilterUnit === unit;
     const txRows=entries.map(e=>{
       const tColor=e.tokenNet>0?'var(--accent)':'var(--red)',adaColor=e.adaNet>=0?'var(--accent)':'var(--red)';
@@ -1407,7 +1516,7 @@ function renderPnlTotals() {
     <div style="font-size:13px;font-weight:600;font-family:var(--mono);color:${gc};">Net: ${gain>=0?'+':''}${fmt(gain,4)} ₳</div>`;
 }
 
-function togglePnlToken(unit){document.getElementById(`pnl-body-${unit.slice(0,16)}`)?.classList.toggle('open');}
+function togglePnlToken(unit){document.getElementById(`pnl-body-${unit}`)?.classList.toggle('open');}
 
 // =================================================================
 // SCROLL TO TX
@@ -1487,10 +1596,17 @@ function renderLabelsPanel() {
     <span class="label-chip ${l.color}" style="cursor:pointer;padding-right:4px;" title="${escHtml(addr)}">
       <span data-filter-label="${escHtml(addr)}" style="cursor:pointer;">${escHtml(l.name)}</span>
       <button data-edit-label="${escHtml(addr)}" title="Edit label" style="background:none;border:none;color:inherit;cursor:pointer;font-size:9px;padding:0;opacity:0.7;">✎</button>
+      <button data-delete-label="${escHtml(addr)}" title="Delete label" style="background:none;border:none;color:inherit;cursor:pointer;font-size:9px;padding:0;opacity:0.7;">✕</button>
     </span>
   `).join('');
   chips.querySelectorAll('[data-filter-label]').forEach(el => el.addEventListener('click', () => filterTxLogByAddr(el.dataset.filterLabel)));
   chips.querySelectorAll('[data-edit-label]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openLabelPopup(btn.dataset.editLabel); }));
+  chips.querySelectorAll('[data-delete-label]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    labels.delete(btn.dataset.deleteLabel);
+    renderLabelsPanel();
+    renderTable();
+  }));
 }
 
 // =================================================================
@@ -1505,6 +1621,8 @@ document.getElementById('tx-body').addEventListener('click',e=>{
   if(addBtn && !addBtn.disabled){togglePnlMembership(addBtn.dataset.pnlAdd);return;}
   const labelBtn=e.target.closest('.label-star-btn');
   if(labelBtn){openLabelPopup(labelBtn.dataset.addr);return;}
+  const addrEl=e.target.closest('[data-click-addr]');
+  if(addrEl){clickAddress(addrEl.dataset.clickAddr);return;}
   const expandBtn=e.target.closest('.utxo-expand-btn');
   if(expandBtn){
     const expanded=expandBtn.dataset.expanded==='true';
