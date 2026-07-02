@@ -1,4 +1,4 @@
-<!-- v8.1 -->
+<!-- v8.5 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -56,7 +56,6 @@
     .panel-accent { border-left:3px solid var(--accent); }
     .panel-amber  { border-left:3px solid var(--amber); }
     .panel-blue   { border-left:3px solid var(--blue); }
-    .panel-red    { border-left:3px solid var(--red); }
     .panel-header { display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1rem; cursor:pointer; user-select:none; background:var(--surface); position:sticky; top:0; z-index:10; border-bottom:1px solid var(--border); }
     .panel-header:hover { background:var(--surface2); }
     .panel-header-left { display:flex; align-items:center; gap:8px; }
@@ -96,7 +95,6 @@
     .utxo-entry { display:flex; flex-direction:column; gap:2px; }
     .utxo-entry.hidden { display:none; }
     .utxo-ada { font-family:var(--mono); font-size:12px; color:var(--text); white-space:nowrap; }
-    .utxo-addr { font-family:var(--mono); font-size:11px; color:var(--muted); word-break:break-all; }
     .utxo-expand-btn { margin-top:4px; background:none; border:none; padding:0; font-size:11px; color:var(--accent); cursor:pointer; }
     .utxo-expand-btn:hover { text-decoration:underline; }
 
@@ -105,6 +103,7 @@
     .pnl-token-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface2); cursor:pointer; user-select:none; flex-wrap:wrap; }
     .pnl-token-header:hover { background:rgba(255,255,255,0.04); }
     .pnl-token-header.filtering { background:var(--amber-dim); }
+    .pnl-token-header.targeting { background:var(--accent-dim); border-left:3px solid var(--accent); }
     .pnl-token-name { font-size:12px; font-weight:600; color:var(--amber); flex:1; min-width:80px; }
     .pnl-stat { font-size:11px; font-family:var(--mono); }
     .pnl-token-body { display:none; padding:8px 12px; }
@@ -250,6 +249,19 @@
       </div>
     </div>
 
+    <!-- Labels Summary -->
+    <div class="panel panel-blue" id="labels-summary-panel" style="display:none;">
+      <div class="panel-header" onclick="togglePanel('labels-summary-body','labels-summary-chev')">
+        <div class="panel-header-left">
+          <span class="panel-chevron" id="labels-summary-chev">▶</span>
+          <span class="panel-header-title">Label Summary</span>
+        </div>
+      </div>
+      <div class="panel-body" id="labels-summary-body">
+        <div id="labels-summary-wrap"></div>
+      </div>
+    </div>
+
     <!-- Labels panel — shown only when at least one address is labeled -->
     <div id="labels-panel" style="display:none;flex-wrap:wrap;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;margin-bottom:1rem;">
       <span style="color:var(--muted);font-size:11px;flex-shrink:0;">Labels:</span>
@@ -273,6 +285,7 @@
     <div id="addr-filter-banner" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:12px;">
       <span style="color:var(--muted);">Filtered to address</span>
       <span id="addr-filter-name" style="font-family:var(--mono);color:var(--blue);font-weight:600;word-break:break-all;"></span>
+      <span id="addr-filter-pnl-target" style="display:none;font-size:11px;color:var(--accent);margin-left:4px;"></span>
       <span style="color:var(--muted);">± </span>
       <input id="addr-filter-window" type="number" min="0" max="50" value="3"
         style="width:48px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;padding:3px 6px;outline:none;"/>
@@ -383,6 +396,7 @@ Object.defineProperty(window, 'currentPage', {
 // since the filter itself is the explicit token context).
 let activeFilterUnit   = null;
 let lastFilterUnit     = null; // remembers the last token filter even after clearing
+let pnlTargetUnit      = null; // token targeted for + button when address filter is active
 let activeFilterWindow = 3; // context txs around each token-filter anchor
 
 // Address filter — mutually exclusive with token filter.
@@ -492,7 +506,8 @@ async function fetchAccount() {
   pnlManualEntries.clear();
   pnlRemovedAuto.clear();
   userDecimalOverrides.clear();
-  activeFilterUnit = null; lastFilterUnit = null;
+  labels.clear();
+  activeFilterUnit = null; lastFilterUnit = null; pnlTargetUnit = null;
   activeFilterWindow = 3;
   document.getElementById('tx-filter-banner').style.display = 'none';
   activeFilterAddr = null; lastFilterAddr = null;
@@ -572,7 +587,7 @@ async function fetchAccount() {
     renderDateRange();
     renderSummaryTable();
     renderTokenPnl();
-    renderLabelsPanel();
+    renderLabelsPanel(); renderLabelsSummary();
     setStatus('');
 
   } catch(e) {
@@ -598,7 +613,8 @@ function importJSON(file) {
       pnlRemovedAuto.clear();
       tokenDecimals.clear();
       userDecimalOverrides.clear();
-      activeFilterUnit = null; lastFilterUnit = null;
+      labels.clear();
+      activeFilterUnit = null; lastFilterUnit = null; pnlTargetUnit = null;
       activeFilterWindow = 3;
       document.getElementById('tx-filter-banner').style.display = 'none';
       activeFilterAddr = null; lastFilterAddr = null;
@@ -625,7 +641,7 @@ function importJSON(file) {
       renderDateRange();
       renderSummaryTable();
       renderTokenPnl();
-      renderLabelsPanel();
+      renderLabelsPanel(); renderLabelsSummary();
       setStatus(`Loaded ${allTxs.length} transactions from file (exported ${payload.exportedAt ? new Date(payload.exportedAt).toLocaleString() : 'unknown date'}).`);
 
     } catch (err) {
@@ -732,7 +748,6 @@ function classifyTx(tx) {
   }
 
   if (isSingleTxSwap(tx)) {
-    // Find the token side of the swap (the one with non-zero net)
     const [unit, tNet] = [...tokenNet.entries()][0] || [];
     const name = unit ? (formatAssetName(unit.slice(56)) || 'token') : 'token';
     const cpAddr = findCounterpartyAddr(tx);
@@ -746,16 +761,10 @@ function classifyTx(tx) {
   }
 
   if (tokenNet.size > 0) {
-    // Token moved without a clean ADA-for-token swap pattern
     return { icon:'📦', label:'Token transfer' };
   }
 
   if (adaNet > 0) {
-    // Heuristic: ADA in, no tokens, not a swap — likely a reward
-    // withdrawal or a plain incoming payment. We can't reliably tell
-    // these apart from tx data alone (Blockfrost's rewards endpoint
-    // is epoch-level, not tied to a specific tx hash), so we label
-    // it ambiguously rather than claim false certainty.
     return { icon:'🎁', label:'Possible reward / ADA received' };
   }
 
@@ -773,7 +782,7 @@ function buildPnlData() {
   pnlData.clear();
   allTxs.forEach(tx=>{
     const {adaNet,tokenNet}=calcTxNet(tx);
-    if(tokenNet.size===0) return; // no token flow, skip
+    if(tokenNet.size===0) return;
     const date=new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
     tokenNet.forEach((tNet,unit)=>{
       if(!pnlData.has(unit)) pnlData.set(unit,[]);
@@ -821,6 +830,7 @@ function promptSetDecimals(unit, name) {
   renderTimeline();
   renderSummaryTable();
   renderTokenPnl();
+  renderLabelsSummary();
 }
 
 function utxoRows(list,txHash,side) {
@@ -839,7 +849,7 @@ function utxoRows(list,txHash,side) {
       ${tokenAmounts(u.amount)}
       <div style="display:flex;align-items:center;gap:4px;">
         <button class="label-star-btn" data-addr="${escHtml(addr)}" title="${label?'Edit label':'Add label'}">${label?'★':'☆'}</button>
-        <span class="utxo-addr" data-click-addr="${escHtml(addr)}" style="cursor:pointer;${isOwn?'color:var(--accent);':''}text-decoration-style:dotted;text-underline-offset:2px;" title="Click to filter transactions by this address">${escHtml(addr)}</span>
+        <span data-click-addr="${escHtml(addr)}" style="cursor:pointer;font-family:var(--mono);font-size:11px;word-break:break-all;${isOwn?'color:var(--accent);':'color:var(--muted);'}text-decoration-style:dotted;text-underline-offset:2px;" title="Click to filter transactions by this address">${escHtml(addr)}</span>
       </div>
     </div>`;
   }).join('');
@@ -887,6 +897,7 @@ function filterTxLogByToken(unit, name) {
   activeFilterUnit = unit;
   lastFilterUnit   = unit;
   activeFilterAddr = null;
+  pnlTargetUnit    = null; // token filter takes over + button
   document.getElementById('addr-filter-banner').style.display = 'none';
   if (changed) currentPage = 1;
   document.getElementById('tx-filter-banner').style.display = 'flex';
@@ -935,10 +946,10 @@ document.getElementById('addr-filter-context-toggle').addEventListener('click', 
 });
 
 // Update a context toggle button's text and style based on current window size
-function updateContextToggleBtn(id, window) {
+function updateContextToggleBtn(id, windowSize) {
   const btn = document.getElementById(id);
   if (!btn) return;
-  const on = window > 0;
+  const on = windowSize > 0;
   btn.textContent = `Context: ${on ? 'on' : 'off'}`;
   btn.style.color = on ? 'var(--accent)' : 'var(--muted)';
   btn.style.borderColor = on ? 'var(--accent)' : '';
@@ -950,7 +961,7 @@ function updateContextToggleBtn(id, window) {
 function clickAddress(addr) {
   if (!labels.has(addr)) {
     labels.set(addr, { name: addr.slice(-6), color: 'accent' });
-    renderLabelsPanel();
+    renderLabelsPanel(); renderLabelsSummary();
     renderTable(); // refresh star buttons to ★
   }
   filterTxLogByAddr(addr);
@@ -976,8 +987,32 @@ function filterTxLogByAddr(addr) {
 
 function clearAddrFilter() {
   activeFilterAddr = null;
+  pnlTargetUnit = null;
+  updatePnlTargetBanner();
   document.getElementById('addr-filter-banner').style.display = 'none';
   renderTable();
+  renderTokenPnl();
+}
+
+// Toggle a token as the P&L target for the + button when the
+// address filter is active. Click the same token again to deselect.
+function togglePnlTarget(unit) {
+  pnlTargetUnit = pnlTargetUnit === unit ? null : unit;
+  updatePnlTargetBanner();
+  renderTokenPnl();
+  renderTable(); // re-render so + button enabled state updates
+}
+
+function updatePnlTargetBanner() {
+  const el = document.getElementById('addr-filter-pnl-target');
+  if (!el) return;
+  if (pnlTargetUnit && activeFilterAddr) {
+    const name = formatAssetName(pnlTargetUnit.slice(56)) || 'token';
+    el.textContent = `· + adds to: ${name}`;
+    el.style.display = 'inline';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 document.getElementById('addr-filter-clear-btn').addEventListener('click', clearAddrFilter);
@@ -1015,10 +1050,26 @@ function getFilteredTxListByAddr(addr) {
 function getFilteredTxList(unit, windowSize) {
   const chrono = [...allTxs].reverse(); // oldest-first
 
+  // Build a hash→index map for quick lookup
+  const hashToIdx = new Map(chrono.map((tx, i) => [tx.hash, i]));
+
   const anchorIndices = new Set();
+
+  // On-chain anchors: transactions where this token's net is non-zero
   chrono.forEach((tx, i) => {
     const { tokenNet } = calcTxNet(tx);
     if (tokenNet.has(unit)) anchorIndices.add(i);
+  });
+
+  // Manual P&L anchors: transactions the user explicitly added to this
+  // token's P&L (and haven't been removed), even if they didn't
+  // directly touch the token on-chain
+  const removed = pnlRemovedAuto.get(unit) || new Set();
+  (pnlManualEntries.get(unit) || new Map()).forEach((_, hash) => {
+    if (!removed.has(hash)) {
+      const idx = hashToIdx.get(hash);
+      if (idx !== undefined) anchorIndices.add(idx);
+    }
   });
 
   const includedIndices = new Set();
@@ -1054,18 +1105,16 @@ function getTokensForTx(hash) {
 
 // Toggle a tx in/out of the active filtered token's P&L
 function togglePnlMembership(hash) {
-  if (!activeFilterUnit) return;
-  const unit = activeFilterUnit;
+  const unit = activeFilterUnit || pnlTargetUnit;
+  if (!unit) return;
   const tx = allTxs.find(t => t.hash === hash);
   if (!tx) return;
 
   if (isInTokenPnl(unit, hash)) {
-    // Remove: works whether the entry came from auto-detection or was manually added
     pnlManualEntries.get(unit)?.delete(hash);
     if (!pnlRemovedAuto.has(unit)) pnlRemovedAuto.set(unit, new Set());
     pnlRemovedAuto.get(unit).add(hash);
   } else {
-    // Add: clear any prior removal flag, then add as a manual entry
     pnlRemovedAuto.get(unit)?.delete(hash);
     const { adaNet, tokenNet } = calcTxNet(tx);
     const date = new Date(tx.time*1000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -1148,11 +1197,13 @@ function renderTable() {
         <div><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Outputs</div>${utxoRows(tx.outputs,tx.hash,'outputs')}</div>
       </div>${collateralDetails(tx)}</details>`;
 
-    const isMember = activeFilterUnit ? isInTokenPnl(activeFilterUnit, tx.hash) : false;
-    const addBtnDisabled = !activeFilterUnit;
-    const addBtnTitle = activeFilterUnit
-      ? (isMember ? 'Remove from this token\'s P&L' : 'Add to this token\'s P&L')
-      : 'Filter to a token first (click 🔎 in Token P&L) to enable';
+    const effectiveUnit = activeFilterUnit || pnlTargetUnit;
+    const isMember = effectiveUnit ? isInTokenPnl(effectiveUnit, tx.hash) : false;
+    const addBtnDisabled = !effectiveUnit;
+    const targetName = effectiveUnit ? (formatAssetName(effectiveUnit.slice(56)) || 'token') : '';
+    const addBtnTitle = effectiveUnit
+      ? (isMember ? `Remove from ${targetName} P&L` : `Add to ${targetName} P&L`)
+      : 'Filter to a token (🔎) or target a token in P&L (⊕) to enable';
 
     // Tokens this tx is currently part of in the P&L (any token, not
     // just the active filter), shown as small amber chips next to the
@@ -1211,14 +1262,14 @@ function renderTable() {
 // last page, and a small window around the current page.
 function buildPageList(current, total) {
   const pages = [];
-  const addPage = p => pages.push(p);
-  const addEllipsis = () => { if (pages[pages.length-1] !== '...') pages.push('...'); };
-
   for (let p = 1; p <= total; p++) {
     const isEdge = p === 1 || p === total;
     const isNearCurrent = Math.abs(p - current) <= 1;
-    if (isEdge || isNearCurrent) addPage(p);
-    else addEllipsis();
+    if (isEdge || isNearCurrent) {
+      pages.push(p);
+    } else if (pages[pages.length-1] !== '...') {
+      pages.push('...');
+    }
   }
   return pages;
 }
@@ -1359,8 +1410,101 @@ function renderDateRange() {
 }
 
 // =================================================================
-// TOKEN SUMMARY TABLE
+// TOKEN SUMMARY TABLE AND LABELS SUMMARY
 // =================================================================
+
+function calcAddrFlow(addr) {
+  let adaReceived = 0; // ADA that left addr and came to my wallet
+  let adaSent     = 0; // ADA that left my wallet and went to addr
+  const tokReceived = new Map(); // unit → amount received from addr
+  const tokSent     = new Map(); // unit → amount sent to addr
+  let txCount = 0;
+
+  allTxs.forEach(tx => {
+    const addrInInputs  = (tx.inputs||[]).some(u => u.address === addr);
+    const addrInOutputs = (tx.outputs||[]).some(u => u.address === addr);
+    if (!addrInInputs && !addrInOutputs) return;
+    txCount++;
+
+    // ADA/tokens leaving addr into my wallet:
+    // addr is an input AND my addresses are outputs
+    if (addrInInputs) {
+      (tx.inputs||[]).filter(u => u.address === addr).forEach(u => {
+        (u.amount||[]).forEach(a => {
+          if (a.unit === 'lovelace') adaReceived += parseInt(a.quantity);
+          else tokReceived.set(a.unit, (tokReceived.get(a.unit)||0) + applyDecimals(a.quantity, a.unit));
+        });
+      });
+    }
+
+    // ADA/tokens leaving my wallet to addr:
+    // my addresses are inputs AND addr is an output
+    if (addrInOutputs) {
+      (tx.outputs||[]).filter(u => u.address === addr).forEach(u => {
+        (u.amount||[]).forEach(a => {
+          if (a.unit === 'lovelace') adaSent += parseInt(a.quantity);
+          else tokSent.set(a.unit, (tokSent.get(a.unit)||0) + applyDecimals(a.quantity, a.unit));
+        });
+      });
+    }
+  });
+
+  return {
+    txCount,
+    adaReceived: adaReceived / 1_000_000,
+    adaSent:     adaSent     / 1_000_000,
+    tokReceived,
+    tokSent,
+  };
+}
+
+function renderLabelsSummary() {
+  const panel = document.getElementById('labels-summary-panel');
+  const wrap  = document.getElementById('labels-summary-wrap');
+  if (!labels.size || !allTxs.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  const rows = [...labels.entries()].map(([addr, l]) => {
+    const f = calcAddrFlow(addr);
+    const netAda = f.adaReceived - f.adaSent;
+    const netCol = netAda > 0 ? 'var(--accent)' : netAda < 0 ? 'var(--red)' : 'var(--muted)';
+    const cardanoscanUrl = `https://cardanoscan.io/address/${addr}`;
+
+    // Collect all token units mentioned in either direction
+    const allTokenUnits = new Set([...f.tokReceived.keys(), ...f.tokSent.keys()]);
+    const tokenChips = [...allTokenUnits].map(unit => {
+      const rec = f.tokReceived.get(unit) || 0;
+      const snt = f.tokSent.get(unit)     || 0;
+      const net = rec - snt;
+      if (net === 0) return '';
+      const name = formatAssetName(unit.slice(56)) || 'null';
+      const url  = `https://adastat.net/tokens/${unit}`;
+      const c    = net > 0 ? 'var(--accent)' : 'var(--red)';
+      return `<span style="font-size:10px;font-family:var(--mono);color:${c};white-space:nowrap;">${net>0?'+':''}${fmt4sig(net)} <a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;">${escHtml(name)}</a></span>`;
+    }).filter(Boolean).join('<span style="color:var(--border2);margin:0 4px;">·</span>');
+
+    return `<tr>
+      <td><span class="label-chip ${l.color}">${escHtml(l.name)}</span></td>
+      <td style="font-family:var(--mono);font-size:10.5px;"><a href="${cardanoscanUrl}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none;">${addr.slice(0,10)}…${addr.slice(-8)}</a></td>
+      <td style="color:var(--muted);">${f.txCount}</td>
+      <td style="font-family:var(--mono);color:var(--accent);">${fmt(f.adaReceived,4)} ₳</td>
+      <td style="font-family:var(--mono);color:var(--red);">${fmt(f.adaSent,4)} ₳</td>
+      <td style="font-family:var(--mono);color:${netCol};font-weight:600;">${netAda>=0?'+':''}${fmt(netAda,4)} ₳</td>
+      <td style="max-width:280px;flex-wrap:wrap;">${tokenChips || '<span style="color:var(--muted);font-size:11px;">—</span>'}</td>
+      <td><button onclick="filterTxLogByAddr('${escHtml(addr)}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;" title="Filter transactions by this address">🔎</button></td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table class="summary-table">
+    <thead><tr>
+      <th>Label</th><th>Address</th><th>Txs</th>
+      <th>ADA Received</th><th>ADA Sent</th><th>Net ADA</th>
+      <th>Tokens</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function renderSummaryTable() {
   const panel=document.getElementById('summary-panel'),wrap=document.getElementById('summary-table-wrap');
   const units=allPnlUnits();
@@ -1435,6 +1579,7 @@ function renderTokenPnl() {
     const netPos=totalIn-totalOut,netColor=netPos>=0?'var(--accent)':'var(--red)';
     const bodyId=`pnl-body-${unit}`;
     const isFiltering = activeFilterUnit === unit;
+    const isTargeting = pnlTargetUnit === unit;
     const txRows=entries.map(e=>{
       const tColor=e.tokenNet>0?'var(--accent)':'var(--red)',adaColor=e.adaNet>=0?'var(--accent)':'var(--red)';
       const tknStr=`${e.tokenNet>0?'+':''}${fmt4sig(e.tokenNet)} tkn`;
@@ -1447,11 +1592,14 @@ function renderTokenPnl() {
       </div>`;
     }).join('');
     return `<div class="pnl-token-row" data-unit="${unit}">
-      <div class="pnl-token-header${isFiltering?' filtering':''}" onclick="togglePnlToken('${unit}')">
+      <div class="pnl-token-header${isFiltering?' filtering':''}${isTargeting?' targeting':''}" onclick="togglePnlToken('${unit}')">
         <span class="pnl-token-name"><a href="${url}" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;" onclick="event.stopPropagation()">${escHtml(name)}</a></span>
         <button onclick="event.stopPropagation();filterTxLogByToken('${unit}','${escHtml(name).replace(/'/g,"\\'")}')"
           title="${isFiltering ? 'Currently filtering the Transaction Log to this token' : 'Filter the Transaction Log to this token, then use + to add/remove txs'}"
           style="background:none;border:none;color:${isFiltering?'var(--amber)':'var(--muted)'};cursor:pointer;font-size:12px;padding:0 4px;">🔎</button>
+        <button onclick="event.stopPropagation();togglePnlTarget('${unit}')"
+          title="${isTargeting?'Deselect as P&L target':'Target this token — + button will add address-filtered txs here'}"
+          style="background:none;border:none;color:${isTargeting?'var(--accent)':'var(--muted)'};cursor:pointer;font-size:13px;padding:0 2px;">⊕</button>
         <span class="pnl-stat" style="color:${netColor};">Net ${netPos>=0?'+':''}${fmt4sig(netPos)} tkn</span>
       </div>
       <div class="pnl-token-body${openUnits.has(unit)?' open':''}" id="${bodyId}" data-unit="${unit}">
@@ -1522,9 +1670,26 @@ function togglePnlToken(unit){document.getElementById(`pnl-body-${unit}`)?.class
 // SCROLL TO TX
 // =================================================================
 function scrollToTx(hash) {
-  const idx=allTxs.findIndex(t=>t.hash===hash);if(idx===-1)return;
-  const tp=Math.floor(idx/PAGE_SIZE)+1;
-  if(tp!==currentPage){currentPage=tp;renderTable();}
+  // Find which page this tx is on in the current view (filtered or unfiltered)
+  let sourceList;
+  if (activeFilterUnit) {
+    sourceList = getFilteredTxList(activeFilterUnit, activeFilterWindow).reverse();
+  } else if (activeFilterAddr) {
+    sourceList = getFilteredTxListByAddr(activeFilterAddr).reverse();
+  } else {
+    sourceList = allTxs.map(tx => ({ tx }));
+  }
+  const posInView = sourceList.findIndex(item => item.tx.hash === hash);
+  if (posInView === -1) {
+    // Tx not visible in current filter — fall back to unfiltered position
+    const idxInAll = allTxs.findIndex(t => t.hash === hash);
+    if (idxInAll === -1) return;
+    const tp = Math.floor(idxInAll/PAGE_SIZE)+1;
+    if (tp !== currentPage) { currentPage = tp; renderTable(); }
+  } else {
+    const tp = Math.floor(posInView/PAGE_SIZE)+1;
+    if (tp !== currentPage) { currentPage = tp; renderTable(); }
+  }
   requestAnimationFrame(()=>{
     const row=[...document.querySelectorAll('.hash-cell a')].find(a=>a.href.includes(hash))?.closest('tr');
     if(!row) return;
@@ -1573,14 +1738,14 @@ document.getElementById('label-popup-save').addEventListener('click', () => {
   labels.set(labelPopupAddr, { name, color: labelPopupColor });
   closeLabelPopup();
   renderTable();
-  renderLabelsPanel();
+  renderLabelsPanel(); renderLabelsSummary();
 });
 
 document.getElementById('label-popup-remove').addEventListener('click', () => {
   labels.delete(labelPopupAddr);
   closeLabelPopup();
   renderTable();
-  renderLabelsPanel();
+  renderLabelsPanel(); renderLabelsSummary();
 });
 
 document.getElementById('label-popup').addEventListener('click', e => {
@@ -1604,7 +1769,7 @@ function renderLabelsPanel() {
   chips.querySelectorAll('[data-delete-label]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     labels.delete(btn.dataset.deleteLabel);
-    renderLabelsPanel();
+    renderLabelsPanel(); renderLabelsSummary();
     renderTable();
   }));
 }
